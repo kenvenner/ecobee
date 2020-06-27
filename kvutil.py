@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.37
+@version:  1.38
 
 Library of tools used in general by KV
 '''
@@ -18,7 +18,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # set the module version number
-AppVersion = '1.37'
+AppVersion = '1.38'
 
 # import ast
 #   and call bool(ast.literal_eval(value)) 
@@ -76,6 +76,11 @@ def kv_parse_command_line( optiondictconfig, raise_error=False, keymapdict=None,
             'value' : 1,
             'type'  : 'int',
             'description' : 'defines the display level for print messages',
+        },
+        'dumpconfig' : {
+            'value' : False,
+            'type'  : 'bool',
+            'description' : 'defines if we will dump the final optiondict and exit',
         },
         'conf_json' : {
             'value' : None,
@@ -144,8 +149,13 @@ def kv_parse_command_line( optiondictconfig, raise_error=False, keymapdict=None,
         cmdlineargs[key] = value
 
     # see if we communicated the configuration file to read
+    conf_json_file = None
     if 'conf_json' in cmdlineargs:
-        with open( cmdlineargs['conf_json'], 'r' ) as json_conf:
+        conf_json_file = cmdlineargs['conf_json']
+    elif 'conf_json' in optiondict and optiondict['conf_json']:
+        conf_json_file = optiondict['conf_json']
+    if conf_json_file:
+        with open( conf_json_file, 'r' ) as json_conf:
             import json
             confargs = json.load(json_conf)
         for key,value in confargs.items():
@@ -245,7 +255,14 @@ def kv_parse_command_line( optiondictconfig, raise_error=False, keymapdict=None,
     # debug when we are done
     if debug:  print('kv_parse_command_line:optiondict:', optiondict)
     logger.debug('optiondict:%s', optiondict)
-    
+
+    # check to see if they set the dumpconfig setting if so display and exit
+    if 'dumpconfig' in optiondict and optiondict['dumpconfig']:
+        print('kv_parse_command_line:Dump configuration requested:')
+        for (key,val) in optiondict.items():
+            print('{}{}:{}'.format(key, '.'*(30-len(key)), val))
+        sys.exit()
+        
     # return what we created
     return optiondict
 
@@ -805,4 +822,11 @@ def scriptinfo():
                "dir": scriptdir}
     return scr_dict
 
+
+#utility used to dump a dictionary to a file in json format
+def dump_dict_to_json_file( filename, optiondict ):
+    import json
+    with open( filename, 'w' ) as json_out:
+        json.dump( optiondict, json_out )
+        
 # eof
