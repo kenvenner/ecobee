@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.06
+@version:  1.07
 
 set of functions used to parse BP xls and update the appropriate google calendar
 '''
@@ -27,7 +27,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # set the module version number
-AppVersion = '1.06'
+AppVersion = '1.07'
 
 
 # If modifying these scopes, delete the file token.pickle.
@@ -522,6 +522,9 @@ def sync_villa_cal_with_bp_xls( xlsaref, now=None, debug=False ):
     # capture the current time
     if not now:
         now = datetime.datetime.now()
+    
+    # logger
+    logger.info('Starting date defined as:%s',now)
     
     # read in the existing calendar informaton
     cal_events = read_future_calendar_events(service, now, debug=debug)

@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.13
+@version:  1.14
 
 Read data from ecobee thermostats, and store to file
 Read occupancy from flat file
@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion' : {
-        'value' : '1.13',
+        'value' : '1.14',
         'description' : 'defines the version number for the app',
     },
     'debug' : {
@@ -62,7 +62,7 @@ optiondictconfig = {
         'description' : 'defines the display level for print messages',
     },
     'conf_json' : {
-        'value' : 'villaecobee.json',
+        'value' : ['villaecobee.json'],
         'description' : 'defines the json configuration file to be read',
     },
     'api_key' : {

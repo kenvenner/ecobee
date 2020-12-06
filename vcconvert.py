@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.15
+@version:  1.16
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -43,7 +43,7 @@ import villacalendar
 # application variables
 optiondictconfig = {
     'AppVersion' : {
-        'value' : '1.15',
+        'value' : '1.16',
         'description' : 'defines the version number for the app',
     },
     'debug' : {
@@ -149,6 +149,12 @@ def load_convert_save_file( xlsfile, req_cols, occupy_filename, fldFirstNight, f
 
     #print(xlsaref)
     #sys.exit(1)
+
+    # capture if the current renter is still there - their start date
+    current_guest_start = None
+
+    # get the current date
+    now = datetime.datetime.now()
     
     # logging
     logger.info('Create occupancy file:%s', occupy_filename)
@@ -190,8 +196,12 @@ def load_convert_save_file( xlsfile, req_cols, occupy_filename, fldFirstNight, f
                 # add one day to this date and loop
                 eventdate += addoneday
 
+            # capture current guest if it exists
+            if rec['startdate'] < now and rec['exitdate']> now:
+                current_guest_start = rec['startdate']
+                
         # return the BP file with modifications
-        return xlsaref
+        return xlsaref, current_guest_start
     
 # routine that read in the history stays file and the current stays files and addes to
 # the history file any dates from the current stays file that are in the past
@@ -254,7 +264,7 @@ if __name__ == '__main__':
     migrate_stays_to_history(optiondict['occupy_filename'], optiondict['occupy_history_filename'], optiondict['fldDate'], debug=False)
     
     # load and convert the XLS to create the TXT
-    xlsaref = load_convert_save_file( optiondict['xls_filename'], req_cols, optiondict['occupy_filename'], optiondict['fldFirstNight'], optiondict['fldNights'], optiondict['fldType'], optiondict['xlsdateflds'], debug=optiondict['debug'] )
+    xlsaref,current_guest_start = load_convert_save_file( optiondict['xls_filename'], req_cols, optiondict['occupy_filename'], optiondict['fldFirstNight'], optiondict['fldNights'], optiondict['fldType'], optiondict['xlsdateflds'], debug=optiondict['debug'] )
 
     # if the google calendar sync flag is set - sync
     if optiondict['calendarsync']:
@@ -263,6 +273,8 @@ if __name__ == '__main__':
             now = datetime.datetime.now()+datetime.timedelta(days=optiondict['startback'])
         elif optiondict['startdate']:
             now = optiondict['startdate']
+        elif current_guest_start:
+            now = current_guest_start
         else:
             now = datetime.datetime.now()
         # now update the calendar
