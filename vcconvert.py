@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.16
+@version:  1.18
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -43,7 +43,7 @@ import villacalendar
 # application variables
 optiondictconfig = {
     'AppVersion' : {
-        'value' : '1.16',
+        'value' : '1.18',
         'description' : 'defines the version number for the app',
     },
     'debug' : {
@@ -69,7 +69,7 @@ optiondictconfig = {
         'description' : 'defines the name of the file holding the historical villa occupancy',
     },
     'xlsdateflds'    : {
-        'value'       : ['First Night','Last Night','Created'],
+        'value'       : ['First Night','Last Night'],
         'type'        : 'liststr',
         'description' : 'defines the list of date fields inside the xls',
     },
@@ -121,6 +121,7 @@ occtype_conv = {
     'Hold - Clean' : ['C', 0],
     'Hold - Maint.' : ['M', 0],
     'Hold- Mainten' : ['M', 0],
+    'Hold - Maint' : ['M', 0],
     'Hold - Other' : ['M', 0],
     'Hold - Owner' : ['O', 1],
     'Hold - Renter' : ['R', 1],

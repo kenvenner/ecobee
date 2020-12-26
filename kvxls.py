@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.12
+@version:  1.19
 
 Library of tools used to process XLS/XLSX files
 '''
@@ -13,13 +13,14 @@ import xlwt      # xls (write)
 import kvutil
 import kvmatch
 import datetime
+import re
 
 # logging
 import logging
 logger = logging.getLogger(__name__)
 
 # global variables
-AppVersion = '1.12'
+AppVersion = '1.19'
 
 #----- OPTIONS ---------------------------------------
 # debug
@@ -34,15 +35,23 @@ AppVersion = '1.12'
 # col_header
 # no_header
 # aref_result
-# saverow
+# save_row
 # start_row
 # sheetname
 # sheetrow
 # dateflds
 
+#### CONSTANTS #####
+ILLEGAL_CHARACTERS_RE = r'[\000-\010]|[\013-\014]|[\016-\037]'
 
 
 # ---- UTILITY FUNCTIONS ------------------------------
+
+# remove characters that can not go into XLS files
+def strip_xls_illegal_chars( value ):
+    if isinstance( value, (str,bytes) ):
+        return re.sub(ILLEGAL_CHARACTERS_RE, ' ', value)
+    return value
 
 # utility used to convert an xls date number into a datetime object
 def xldate_to_datetime(xldate, skipblank=False):
@@ -176,15 +185,54 @@ def setExcelCellPatternFill( excelDict, row, col_name, fgColor, fill_type="solid
 
 # read in the XLS and create a dictionary to the records
 # assumes the first line of the XLS file is the header/defintion of the XLS
-def readxls2list( xlsfile, debug=False ):
-    return readxls2list_findheader( xlsfile, [], optiondict={'col_header' : True}, debug=debug )
+def readxls2list( xlsfile, sheetname=None, save_row=False, debug=False ):
+    optiondict={'col_header' : True, 'save_row' : save_row}
+    if sheetname:
+        optiondict['sheetname'] = sheetname
+    return readxls2list_findheader( xlsfile, [], optiondict=optiondict, debug=debug )
 
 # read in the XLS and create a dictionary to the records
 # based on one or more key fields
 # assumes the first line of the CSV file is the header/defintion of the CSV
-def readxls2dict( xlsfile, dictkeys, dupkeyfail=False, debug=False ):
-    return readxls2dict_findheader( xlsfile, dictkeys, [], optiondict={'col_header' : True}, debug=debug, dupkeyfail=dupkeyfail )
+def readxls2dict( xlsfile, dictkeys, sheetname=None, save_row=False, dupkeyfail=False, debug=False ):
+    optiondict={'col_header' : True, 'save_row' : save_row}
+    if sheetname:
+        optiondict['sheetname'] = sheetname
+    return readxls2dict_findheader( xlsfile, dictkeys, [], optiondict=optiondict, debug=debug, dupkeyfail=dupkeyfail )
 
+
+# read in the xls - output the first XX lines
+def readxls2dump( xlsfile, rows=10, sep=':', no_warnings=False, returnrecs=False, debug=False ):
+    fmtstr1=sep.join(('{}','{}','{}','{}','{}'))+sep
+    fmtstr2=sep.join(('{}','{}','{:02d}','{:03d}','{}'))+sep
+    recheader = ['xlsfile', 'sheetName', 'reccnt', 'colcnt', 'value']
+    xlslines=[]
+    xlsrecs=[]
+    optiondict={'no_header' : True, 'aref_result' : True, 'save_row' : True, 'max_rows' : rows+5, 'no_warnings' : no_warnings }
+    excelDict = readxls_findheader( xlsfile, [], optiondict=optiondict, debug=debug )
+    xlslines.append(fmtstr1.format(*recheader))
+    for sheetname in excelDict['sheetNames']:
+        if debug:
+            print(sheetname,'-'*80)
+        optiondict['sheetname'] = sheetname
+        excelDict = chgsheet_findheader( excelDict, [], optiondict=optiondict, debug=debug )
+        results = excelDict2list_findheader( excelDict, [], optiondict=optiondict, debug=debug )
+        reccnt = 0
+        for rec in results:
+            colcnt = 0
+            for col in rec:
+                xlslines.append(fmtstr2.format(excelDict['xlsfile'], excelDict['sheetName'], reccnt, colcnt, col))
+                if returnrecs:
+                    xlsrecs.append(dict(zip(recheader,[excelDict['xlsfile'], excelDict['sheetName'], reccnt, colcnt, col])))
+                colcnt += 1
+            reccnt += 1
+            if reccnt > rows:
+                break
+    if returnrecs:
+        return xlslines,xlsrecs
+    else:
+        return xlslines
+    
 # ---------- GENERIC OPEN EXCEL to enable EDIT ----------------------
 #
 # or passed on to other routines to extract the data for processing
@@ -228,6 +276,8 @@ def readxls_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_aref=
     
     start_row   = 0      # if passed in - we start the search at this row (starts at 1 or greater)
 
+    max_rows    = 100000000
+    
     # create the list of misconfigured solutions
     badoptiondict = {
         'startrow'       : 'start_row',
@@ -241,9 +291,13 @@ def readxls_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_aref=
         'arefresult'     : 'aref_result',
         'arefresults'    : 'aref_result',
         'aref_results'   : 'aref_result',
-        'saverow'        : 'saverow',
-        'saverows'       : 'saverow',
-        'save_rows'      : 'saverow',
+        'maxrow'         : 'max_rows',
+        'max_row'        : 'max_rows',
+        'maxrows'        : 'max_rows',
+        'saverow'        : 'save_row',
+        'saverows'       : 'save_row',
+        'save_rows'      : 'save_row',
+        'sheetName'      : 'sheetname',
     }
 
     # check what got passed in
@@ -256,6 +310,7 @@ def readxls_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_aref=
     if 'no_header'   in optiondict: no_header   = optiondict['no_header']
     if 'start_row'   in optiondict: start_row   = optiondict['start_row'] - 1 # because we are not ZERO based in the users mind
     if 'save_row'    in optiondict: save_row    = optiondict['save_row']
+    if 'max_rows'    in optiondict: max_rows    = optiondict['max_rows']
     
 
     # debugging
@@ -266,6 +321,7 @@ def readxls_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_aref=
         print('start_row:', start_row)
         print('save_row:', save_row)
         print('optiondict:', optiondict)
+        print('max_rows:', max_rows)
     logger.debug('col_header:%s', col_header)
     logger.debug('aref_result:%s', aref_result)
     logger.debug('no_header:%s', no_header)
@@ -336,6 +392,13 @@ def readxls_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_aref=
     logger.debug('sheetmaxrow:%s', sheetmaxrow)
     logger.debug('sheetmaxcol:%s', sheetmaxcol)
         
+
+    # check and see if we need to limit max row
+    if max_rows < sheetmaxrow:
+        sheetmaxrow = max_rows
+        if debug:
+            print('sheetmaxrow-changed:', sheetmaxrow)
+            logger.debug('sheetmaxrow-changed:%s', sheetmaxrow)
 
     # ------------------------------- HEADER START ------------------------------
 
@@ -440,7 +503,7 @@ def readxls_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_aref=
         'xlsfile' : xlsfile,
         'xlsxfiletype' : xlsxfiletype,
         'wb' : wb,
-        'sheetNames' : sheetName,
+        'sheetNames' : sheetNames,
         'sheetName' : sheetName,
         's' : s,
         'sheettitle' : sheettitle,
@@ -501,6 +564,8 @@ def chgsheet_findheader( excelDict, req_cols, xlatdict={}, optiondict={}, col_ar
     
     start_row   = 0      # if passed in - we start the search at this row (starts at 1 or greater)
 
+    max_rows    = 100000000
+    
     # create the list of misconfigured solutions
     badoptiondict = {
         'startrow'       : 'start_row',
@@ -514,9 +579,13 @@ def chgsheet_findheader( excelDict, req_cols, xlatdict={}, optiondict={}, col_ar
         'arefresult'     : 'aref_result',
         'arefresults'    : 'aref_result',
         'aref_results'   : 'aref_result',
-        'saverow'        : 'saverow',
-        'saverows'       : 'saverow',
-        'save_rows'      : 'saverow',
+        'maxrow'         : 'max_rows',
+        'max_row'        : 'max_rows',
+        'maxrows'        : 'max_rows',
+        'saverow'        : 'save_row',
+        'saverows'       : 'save_row',
+        'save_rows'      : 'save_row',
+        'sheetName'      : 'sheetname',
     }
 
     # check what got passed in
@@ -529,6 +598,7 @@ def chgsheet_findheader( excelDict, req_cols, xlatdict={}, optiondict={}, col_ar
     if 'no_header'   in optiondict: no_header   = optiondict['no_header']
     if 'start_row'   in optiondict: start_row   = optiondict['start_row'] - 1 # because we are not ZERO based in the users mind
     if 'save_row'    in optiondict: save_row    = optiondict['save_row']
+    if 'max_rows'    in optiondict: max_rows    = optiondict['max_rows']
     
 
     # debugging
@@ -598,6 +668,14 @@ def chgsheet_findheader( excelDict, req_cols, xlatdict={}, optiondict={}, col_ar
     logger.debug('sheetmaxcol:%s', sheetmaxcol)
         
 
+    # check and see if we need to limit max row
+    if max_rows < sheetmaxrow:
+        sheetmaxrow = max_rows
+        if debug:
+            print('sheetmaxrow-changed:', sheetmaxrow)
+            logger.debug('sheetmaxrow-changed:%s', sheetmaxrow)
+
+    
     # ------------------------------- HEADER START ------------------------------
 
     # define the header for the records being read in
@@ -690,7 +768,7 @@ def chgsheet_findheader( excelDict, req_cols, xlatdict={}, optiondict={}, col_ar
         'xlsfile' : xlsfile,
         'xlsxfiletype' : xlsxfiletype,
         'wb' : wb,
-        'sheetNames' : sheetName,
+        'sheetNames' : sheetNames,
         'sheetName' : sheetName,
         's' : s,
         'sheettitle' : sheettitle,
@@ -766,6 +844,35 @@ def readxls2list_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_
     # call the routine that opens the XLS and returns back the excelDict
     # (missing data_only attribute between optiondict and debug)
     excelDict = readxls_findheader( xlsfile, req_cols, xlatdict, optiondict, col_aref, debug=debug )
+
+    # call the library function
+    return excelDict2list_findheader( excelDict, req_cols, xlatdict=xlatdict, optiondict=optiondict, col_aref=col_aref, debug=debug )
+
+
+def excelDict2list_findheader( excelDict, req_cols, xlatdict={}, optiondict={}, col_aref=None, debug=False ):
+
+    # local variables
+    results = []
+    header = None
+    
+    # debugging
+    if debug: print('req_cols:', req_cols)
+    if debug: print('xlatdict:', xlatdict)
+    if debug: print('optiondict:', optiondict)
+    if debug: print('col_aref:', col_aref)
+    logger.debug('req_cols:%s', req_cols)
+    logger.debug('xlatdict:%s', xlatdict)
+    logger.debug('optiondict:%s', optiondict)
+    logger.debug('col_aref:%s', col_aref)
+    
+    # set flags
+    col_header  = False  # if true - we take the first row of the file as the header
+    no_header   = False  # if true - there are no headers read - we either return 
+    aref_result = False  # if true - we don't return dicts, we return a list
+    save_row    = False  # if true - then we append/save the XLSRow with the record
+    
+    start_row   = 0      # if passed in - we start the search at this row (starts at 1 or greater)
+
     
     # pull in passed values from optiondict
     if 'col_header'  in optiondict: col_header  = optiondict['col_header']
@@ -856,10 +963,14 @@ def readxls2list_findheader( xlsfile, req_cols, xlatdict={}, optiondict={}, col_
                 logger.debug('add column XLSRow with row to record')
                 
             # do field manipulations here - date - but only on XLS not XLSX files
-            if not xlsxfiletype:
-                if 'dateflds' in optiondict:
-                    for fld in optiondict['dateflds']:
-                        if fld in rowdict:
+            if 'dateflds' in optiondict:
+                for fld in optiondict['dateflds']:
+                    if fld in rowdict:
+                        if not xlsxfiletype:
+                            rowdict[fld] = xldate_to_datetime(rowdict[fld])
+                            if debug: print('xldate conversion on:', fld)
+                            logger.debug('xldate conversion on:%s', fld)
+                        elif isinstance(rowdict[fld],str):
                             rowdict[fld] = xldate_to_datetime(rowdict[fld])
                             if debug: print('xldate conversion on:', fld)
                             logger.debug('xldate conversion on:%s', fld)
@@ -986,6 +1097,7 @@ def writelist2xls( xlsfile, data, col_aref=None, optiondict={}, debug=False ):
         print('no_header:', no_header)
         print('aref_result:', aref_result)
         print('xlsxfiletype:', xlsxfiletype)
+        print('data cnt:', len(data))
         
     # validate we have columns defined - or create one if we can
     if not col_aref:
@@ -1032,15 +1144,21 @@ def writelist2xls( xlsfile, data, col_aref=None, optiondict={}, debug=False ):
 
     # now step through the data itself
     for record in data:
+        if debug:
+            print(record)
+            
         # output this row of data
         if col_aref and len(col_aref):
             for xlscol in range(0,len(col_aref)):
                 # determine the value - based on how the records are structured
-                if aref_result:
-                    value = record[xlscol]
-                else:
-                    value = record[col_aref[xlscol]]
-                
+                try:
+                    if aref_result:
+                        value = record[xlscol]
+                    else:
+                        value = record[col_aref[xlscol]]
+                except:
+                    value = ''
+
                 # could put a feature in here to convert the value to a string before storing
                 if xlsxfiletype:
                     d = ws.cell(row=xlsrow+1, column=xlscol+1, value=value)
