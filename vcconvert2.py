@@ -30,6 +30,7 @@ from operator import itemgetter
 # working with Excel files
 import openpyxl
 from openpyxl.styles import PatternFill, Border, Side, Alignment, Protection, Font
+from openpyxl.styles import numbers
 from openpyxl.utils import get_column_letter
 
 # Excel formatting strings
@@ -85,7 +86,7 @@ optiondictconfig = {
         'description': 'defines the name of the file holding the historical villa occupancy',
     },
     'xlsdateflds': {
-        'value': ['First Night', 'Last Night', 'HoldUntil'],
+        'value': ['First Night', 'Last Night', 'BookedOn', 'HoldUntil'],
         'type': 'liststr',
         'description': 'defines the list of date fields inside the xls',
     },
@@ -165,11 +166,14 @@ COL_REQUIRED = [BOOKING_FLD, 'First Night', 'Last Night', 'Nights', 'Type', 'Ren
 
 COL_CENTERED = ['Nights', 'Source', 'Managing', 'Confirmed']
 
+COL_NUMBER_FLDS = ['Rent']
+
 COL_WIDTH = {
     'Booking': 12,
     'First Night': 12,
     'Last Night': 12,
     'Type': 17,
+    'Rent': 12,
     'Source': 17,
     'Managing': 15,
     'Confirmed': 12,
@@ -382,6 +386,8 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
                 a1.alignment = fit
             if key in xlsdateflds:
                 a1.number_format = "MM/DD/YYYY"
+            if key in COL_NUMBER_FLDS:
+                a1.number_format = numbers.FORMAT_NUMBER_COMMA_SEPARATED1
 
     # build out month oriented tabs
     for mon in range(1, 13):
