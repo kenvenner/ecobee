@@ -1,12 +1,15 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.18
+@version:  1.19
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
 output file that has an entry per day of stay and stay type
 """
+
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
 
 # we are reusing features from another applicatoin but we wnat
 # the log files to be tied to this applicatoin - so we call tihs
@@ -60,7 +63,7 @@ logger = logging.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.18',
+        'value': '1.19',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -159,9 +162,12 @@ OCC_TYPE_2_BOOKING_CODE = {
 
 # field that holds the booking ids
 BOOKING_FLD = 'Booking'
+REVPERDAY_FLD = "RevPerDay"
+REVTOTAL_FLD = 'Rent'
+STAYS_FLD = 'Nights'
 
 # xls header definition
-COL_REQUIRED = [BOOKING_FLD, 'First Night', 'Last Night', 'Nights', 'Type', 'Rent', 'Source', 'Managing', 'Confirmed',
+COL_REQUIRED = [BOOKING_FLD, 'First Night', 'Last Night', STAYS_FLD, 'Type', REVTOTAL_FLD, 'Source', 'Managing', 'Confirmed',
                 'BookedOn', 'HoldUntil']
 
 COL_CENTERED = ['Nights', 'Source', 'Managing', 'Confirmed']
@@ -173,12 +179,13 @@ COL_WIDTH = {
     'First Night': 12,
     'Last Night': 12,
     'Type': 17,
-    'Rent': 12,
+    REVTOTAL_FLD: 12,
     'Source': 17,
     'Managing': 15,
     'Confirmed': 12,
     'BookedOn': 12,
     'HoldUntil': 12,
+    REVPERDAY_FLD: 12,
 }
 
 MON_STRING = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -208,6 +215,24 @@ def filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights):
 
     return xlsaref
 
+
+def calc_revenue_per_day(xlsaref, fldNights):
+    """
+    Calculate the revenue per day which is revenue/days
+
+    :uses REVTOTAL_FLD: (str) - field were revenue is stored
+    :uses REVPERDAY_FLD: (str) - field where revenue per day is placed/saved to
+
+    :param xlsaref: (list of dict) - the records from the xls
+    :param fldNights: (str) - field that houses the # of nights this record represents
+
+    :returns - updated xlsaref with the revenue per day calculated
+    """
+    for rec in xlsaref:
+        if rec[fldNights] and rec[REVTOTAL_FLD]:
+            rec[REVPERDAY_FLD] = int(float(rec[REVTOTAL_FLD])/float(rec[fldNights])*100)/100
+        else:
+            rec[REVPERDAY_FLD] = None
 
 def find_max_value_per_booking_code(xlsaref):
     """
@@ -320,6 +345,8 @@ def update_xlsaref_records(xlsaref):
             booking_code = assign_booking_code(rec, max_values)
             insert_holds_on_reservation(rec, recidx, xlsaref, booking_code)
 
+        if rec.get(REVTOTAL_FLD) and rec.get(STAYS_FLD):
+            rec[REVPERDAY_FLD] = float(rec.get(REVTOTAL_FLD))/float(rec[STAYS_FLD])
 
 def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
     """
@@ -351,6 +378,9 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
     # find records where first date and number of nights are filled in
     # sort these records so they are in date order
     xlsaref = filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights)
+
+    # calculate the revenue per sheet
+    calc_revenue_per_day(xlsaref, fldNights)
 
     # create workbook for output
     wb = openpyxl.Workbook()
