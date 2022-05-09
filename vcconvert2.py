@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.19
+@version:  1.20
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -51,19 +51,15 @@ fit = Alignment(shrink_to_fit=True)
 # 3) run this tool:  python vcconvert.py
 
 
-import logging
-
-# Logging Setup
-# logging.basicConfig(level=logging.INFO)
-logging.basicConfig(filename=os.path.splitext(kvutil.scriptinfo()['name'])[0] + '.log',
-                    level=logging.INFO,
-                    format='%(asctime)s %(levelname)s %(name)s:%(lineno)d %(funcName)s %(message)s')
-logger = logging.getLogger(__name__)
+import kvlogger
+config=kvlogger.get_config(kvutil.filename_create(__file__, filename_ext='log', path_blank=True), loggerlevel='INFO') #single file
+kvlogger.dictConfig(config)
+logger=kvlogger.getLogger(__name__)
 
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.19',
+        'value': '1.20',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -518,7 +514,7 @@ def load_convert_save_file(xlsfile, req_cols, occupy_filename, fldFirstNight, fl
     xlsaref, overlap = find_and_remove_dup_start_dates(xlsaref, fldFirstNight, fldNights)
 
     if overlap:
-        logger.info('Multiple records with same start night: %s',
+        logger.warning('Multiple records with same start night: %s',
                     {'overlap': overlap})
 
     # capture if the current renter is still there - their start date
@@ -538,6 +534,9 @@ def load_convert_save_file(xlsfile, req_cols, occupy_filename, fldFirstNight, fl
         # set the first exit date to something that will NOT match
         exitdate = datetime.datetime(2019, 1, 1)
 
+        # written out dates - so we don't write it twice
+        already_written_date = list()
+
         # run through the records read in
         for rec in xlsaref:
             # process the record from the file - convert first night into a date variable
@@ -556,8 +555,17 @@ def load_convert_save_file(xlsfile, req_cols, occupy_filename, fldFirstNight, fl
                 else:
                     # convert the eventdate to a string
                     eventdate_str = datetime.datetime.strftime(eventdate, DATE_FMT)
-                    # output this value
-                    t.write('%s,%s\n' % (eventdate_str, OCC_TYPE_CONV[rec[fldType]][0]))
+                    # now make sure we have not already written this date
+                    if eventdate_str not in already_written_date:
+                        # output this value
+                        t.write('%s,%s\n' % (eventdate_str, OCC_TYPE_CONV[rec[fldType]][0]))
+                        # and add this date to the list of dates written
+                        already_written_date.append(eventdate_str)
+                    else:
+                        logger.warning('Skipped record as date already written: %s',
+                                       {'eventdate': eventdate,
+                                        'rec': rec})
+
                     # set the exit date to the last date written out
                     exitdate = eventdate
 
