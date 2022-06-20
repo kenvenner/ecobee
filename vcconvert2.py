@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.20
+@version:  1.21
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -59,7 +59,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.20',
+        'value': '1.21',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -85,7 +85,7 @@ optiondictconfig = {
         'description': 'defines the name of the file holding the historical villa occupancy',
     },
     'xlsdateflds': {
-        'value': ['First Night', 'Last Night', 'BookedOn', 'HoldUntil'],
+        'value': ['First Night', 'Checkout Day', 'BookedOn', 'HoldUntil'],
         'type': 'liststr',
         'description': 'defines the list of date fields inside the xls',
     },
@@ -96,6 +96,10 @@ optiondictconfig = {
     'fldNights': {
         'value': 'Nights',
         'description': 'defines the name of the field holding the int of nights stay',
+    },
+    'fldLastNight': {
+        'value': 'Checkout Day',
+        'description': 'defines the name of the field holding the first night date',
     },
     'fldType': {
         'value': 'Type',
@@ -140,7 +144,11 @@ OCC_TYPE_CONV = {
     'Hold - Renter': ['R', 1],
     'Hold - Winery Business': ['O', 0],
     'Hold - Fall Mbr Event': ['O', 1],
-    'Hold - Ken Venner': ['O', 1],
+    'Hold - Venner': ['O', 1],
+    'Hold - Scribner': ['O', 1],
+    'Hold - Release Party': ['O', 1],
+    'Hold - Harvest Party': ['O', 1],
+    'Hold - Construction': ['O', 1],
     'Res. - Renter': ['R', 1],
     'Res. - Owner': ['O', 1],
     'Res.-Renter': ['R', 1],
@@ -163,7 +171,7 @@ REVTOTAL_FLD = 'Rent'
 STAYS_FLD = 'Nights'
 
 # xls header definition
-COL_REQUIRED = [BOOKING_FLD, 'First Night', 'Last Night', STAYS_FLD, 'Type', REVTOTAL_FLD, 'Source', 'Managing', 'Confirmed',
+COL_REQUIRED = [BOOKING_FLD, 'First Night', 'Checkout Day', STAYS_FLD, 'Type', REVTOTAL_FLD, 'Source', 'Managing', 'Confirmed',
                 'BookedOn', 'HoldUntil']
 
 COL_CENTERED = ['Nights', 'Source', 'Managing', 'Confirmed']
@@ -171,9 +179,9 @@ COL_CENTERED = ['Nights', 'Source', 'Managing', 'Confirmed']
 COL_NUMBER_FLDS = ['Rent']
 
 COL_WIDTH = {
-    'Booking': 12,
+    BOOKING_FLD: 12,
     'First Night': 12,
-    'Last Night': 12,
+    'Checkout Day': 15,
     'Type': 17,
     REVTOTAL_FLD: 12,
     'Source': 17,
@@ -188,7 +196,66 @@ MON_STRING = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oc
 
 SHEET_LISTING = 'Listing'
 
+def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldType):
+    """
+    Step through each record and make sure the record is considered valid or generate an error mesage
 
+    :param xlsaref: (list of dicts) recodrds from that file from sheet "Listing"
+    :param fldFirstNight: (str) column header of the first night date column
+    :param fldNights: (str) column header for the field holding the int # of nights
+    :param fldLastNight: (str) column header of the last night date column
+    :param fldType: (str) column header of the reservation type column
+
+    :return errors: (list) - list of errors we found
+    """
+    errors = list()
+    booking = dict()
+    for recidx, rec in enumerate(xlsaref):
+        date_error = False
+        # date fields are dates
+        for fld in (fldFirstNight, fldLastNight):
+            if not isinstance(rec[fld], datetime.datetime):
+                date_error = True
+                errors.append('Field {} not of type datetime: {}'.format(fld,
+                                                                         {'recidx': recidx,
+                                                                          'type': type(rec[fldFirstNight]),
+                                                                          'rec': rec}))
+
+        # if no errors - make sure the difference matches the set in XLSX
+        if not date_error:
+            dt_diff = rec[fldLastNight] - rec[fldFirstNight]
+            num_nights = int(rec[fldNights])
+            if dt_diff.days != num_nights:
+                errors.append('Field {} not calc as date difference: {}'.format(fld,
+                                                                                {'recidx': recidx,
+                                                                                 'dt_diff': dt_diff.days,
+                                                                                 'num_nights': num_nights,
+                                                                                 'rec': rec}))
+
+        # check the record / reservation type
+        if rec[fldType] not in OCC_TYPE_CONV:
+            errors.append('Field {} not in OCC_TYPE_CONV: {}'.format(fldType,
+                                                                     {'recidx': recidx,
+                                                                      'rec_fldtype': rec[fldType],
+                                                                      'rec': rec,
+                                                                      'OCC_TYPE_CONV': OCC_TYPE_CONV }))
+        # check for unique booking
+        if rec[BOOKING_FLD] is None:
+            continue
+        elif rec[BOOKING_FLD] in booking:
+            errors.append('Field {} booking already exists: {}'.format(fldType,
+                                                                       {'recidx': recidx,
+                                                                        'orig_recidx': booking[rec[BOOKING_FLD]]['recidx'],
+                                                                        'booking': rec[BOOKING_FLD],
+                                                                        'rec': rec}))
+        else:
+            booking[rec[BOOKING_FLD]]=copy.deepcopy(rec)
+            booking[rec[BOOKING_FLD]]['recidx']=recidx
+
+            
+    # return errors found
+    return errors
+            
 def filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights):
     """
     take in the list of dicts
@@ -286,7 +353,7 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code):
 
     # calculate the date prior to the reservation
     hold_start = rec['First Night'] - ADD_ONE_DAY
-    hold_end = rec['Last Night'] + ADD_ONE_DAY
+    hold_end = rec['Checkout Day'] + ADD_ONE_DAY
 
     # calc prior record - and if the record is the first record we don't have a prior record so set it empty
     prior_rec = xlsaref[recidx - 1] if recidx else {}
@@ -294,7 +361,7 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code):
 
     # if the prior record was the appropriate hold record then we are done
     if (prior_rec.get(BOOKING_FLD) == 'CLN' and prior_rec.get('First Night') == hold_start) and \
-            (post_rec.get(BOOKING_FLD) == 'CLN' and post_rec.get('Last Night') == hold_end):
+            (post_rec.get(BOOKING_FLD) == 'CLN' and post_rec.get('Checkout Day') == hold_end):
         return
 
     # copy the keys but not the values
@@ -311,14 +378,14 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code):
 
     # set dates on in side
     hldrecin['First Night'] = rec['First Night'] - ADD_ONE_DAY
-    hldrecin['Last Night'] = hldrecin['First Night']
+    hldrecin['Checkout Day'] = hldrecin['First Night'] + ADD_ONE_DAY
 
     # set dates on out side
-    hldrecout['First Night'] = rec['Last Night'] + ADD_ONE_DAY
-    hldrecout['Last Night'] = hldrecout['First Night']
+    hldrecout['First Night'] = rec['Checkout Day'] + ADD_ONE_DAY
+    hldrecout['Checkout Day'] = hldrecout['First Night'] + ADD_ONE_DAY
 
     # if the last night on the prior record is greater than the start date - take no action
-    if prior_rec.get('Last Night') < hold_start:
+    if prior_rec.get('Checkout Day') < hold_start:
         # append these records
         xlsaref.append(hldrecin)
 
@@ -474,7 +541,14 @@ def find_and_remove_dup_start_dates(xlsaref, fldFirstNight, fldNights):
 #    ADD_ONE_DAY - delta date value that adds one day
 #    OCC_TYPE_CONV - conversion of the occupytype 
 #
-def load_convert_save_file(xlsfile, req_cols, occupy_filename, fldFirstNight, fldNights, fldType, xlsdateflds,
+def load_convert_save_file(xlsfile,
+                           req_cols,
+                           occupy_filename,
+                           fldFirstNight,
+                           fldNights,
+                           fldType,
+                           xlsdateflds,
+                           fldLastNight,
                            debug=False):
     """
     Load convert and save the file - this is like a main_function()
@@ -499,9 +573,21 @@ def load_convert_save_file(xlsfile, req_cols, occupy_filename, fldFirstNight, fl
     # and insert records for cleaning if they are not in here.
     xlsaref = filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights)
 
+    # validate records are right
+    errors = validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldType)
+    if errors:
+        for x in errors:
+            print(x)
+        sys.exit(1)
+
     # now validate the file and fill in fields need filling and insert records needing inserting (holds)
     update_xlsaref_records(xlsaref)
 
+    # DEBUGGING
+    if False:
+        pp.pprint(xlsaref)
+        sys.exit(1)
+    
     # reformat the file and get back the filename of the original file renamed
     # and return the list of records sorted by firstNight
     bak_fname, xlsaref = rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds)
@@ -656,6 +742,7 @@ if __name__ == '__main__':
                                                           optiondict['fldNights'],
                                                           optiondict['fldType'],
                                                           optiondict['xlsdateflds'],
+                                                          optiondict['fldLastNight'],
                                                           debug=optiondict['debug'])
 
     # if the google calendar sync flag is set - sync
