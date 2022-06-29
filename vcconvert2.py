@@ -129,6 +129,8 @@ optiondictconfig = {
 
 # date information
 ADD_ONE_DAY = datetime.timedelta(days=1)
+ADD_ONE_WEEK = datetime.timedelta(days=7)
+ADD_TWO_WEEK = datetime.timedelta(days=14)
 DATE_FMT = '%m/%d/%Y'
 
 # xls file occtype conversion to
@@ -271,7 +273,7 @@ def filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights):
     """
 
     # find records where first date and number of nights are filled in
-    xlsaref = [x for x in xlsaref if x[fldFirstNight] and x[fldNights]]
+    xlsaref = [x for x in xlsaref if x[fldFirstNight] and (x[fldNights] or x[fldNights] == 0)]
 
     # sort these records so they are in date order
     xlsaref = sorted(xlsaref, key=itemgetter(fldFirstNight))
@@ -342,74 +344,225 @@ def assign_booking_code(rec, max_values):
     return booking_code
 
 
-def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code):
+def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
     """
     using the booking code - determine if the record prior was the hold associated with this record
     and if not - add the two hold records
 
     """
-    if booking_code not in ('MLS', 'OWN'):
-        return
+    if booking_code[:3] not in ('MLS', 'OWN'):
+        return {}, {}
+
+    # create the variable
+    hldrecin = {k:'' for k in rec}
+    hldrecout = {k:'' for k in rec}
+
+    debug = False
+    if rec[BOOKING_FLD] == 'MLS-00080' and False:
+        logger.warning('MLS-00080')
+        debug = True
+
+    # DEBUGGING
+    if debug:
+        print('recidx:', recidx)
+        print('len-xlsaref:', len(xlsaref))
+
+    # clean before is the day before they shos
+    clean_before_start = rec['First Night'] - ADD_ONE_DAY
+    clean_before_end = rec['First Night']
+
+    clean_after_start = rec['Checkout Day']
+    clean_after_end = rec['Checkout Day'] + ADD_ONE_DAY
 
     # calculate the date prior to the reservation
     hold_start = rec['First Night'] - ADD_ONE_DAY
     hold_end = rec['Checkout Day'] + ADD_ONE_DAY
 
+    
     # calc prior record - and if the record is the first record we don't have a prior record so set it empty
     prior_rec = xlsaref[recidx - 1] if recidx else {}
-    post_rec = xlsaref[recidx + 1] if len(xlsaref) > recidx else {}
+    post_rec = xlsaref[recidx + 1] if len(xlsaref) > recidx+1 else {}
 
-    # if the prior record was the appropriate hold record then we are done
-    if (prior_rec.get(BOOKING_FLD) == 'CLN' and prior_rec.get('First Night') == hold_start) and \
-            (post_rec.get(BOOKING_FLD) == 'CLN' and post_rec.get('Checkout Day') == hold_end):
-        return
-
-    # copy the keys but not the values
-    hldrecin = {x: '' for x in rec}
-
-    # set values on this record
+    # create the default hold/cleaning reocrd that we will adjust
     hldrecin['Type'] = 'Hold - Clean'
     hldrecin['Nights'] = 1
     hldrecin['Source'] = 'MS-Add'
     hldrecin['Managing'] = 'MS'
+    hldrecin['First Night'] = clean_before_start
+    hldrecin['Checkout Day'] = clean_before_end
 
-    # copy off for out cleaning
-    hldrecout = copy.deepcopy(hldrecin)
+    hldrecout['Type'] = 'Hold - Clean'
+    hldrecout['Nights'] = 1
+    hldrecout['Source'] = 'MS-Add'
+    hldrecout['Managing'] = 'MS'
+    hldrecout['First Night'] = clean_after_start
+    hldrecout['Checkout Day'] = clean_after_end
 
-    # set dates on in side
-    hldrecin['First Night'] = rec['First Night'] - ADD_ONE_DAY
-    hldrecin['Checkout Day'] = hldrecin['First Night'] + ADD_ONE_DAY
+    if debug:
+        logger.warning('Clean_before_start: %s', clean_before_start)
+        logger.warning('Clean_before_end: %s', clean_before_end)
+        logger.warning('Must start later than: %s', clean_before_end - ADD_ONE_WEEK)
 
-    # set dates on out side
-    hldrecout['First Night'] = rec['Checkout Day'] + ADD_ONE_DAY
-    hldrecout['Checkout Day'] = hldrecout['First Night'] + ADD_ONE_DAY
 
-    # if the last night on the prior record is greater than the start date - take no action
-    if prior_rec.get('Checkout Day') < hold_start:
-        # append these records
-        xlsaref.append(hldrecin)
+    # PRE #
+    prior_booking_code = prior_rec.get(BOOKING_FLD)
+    if prior_booking_code:
+        prior_booking_code = prior_booking_code[:3]
 
-    if post_rec.get('First Night') <= hldrecout['First Night']:
-        return
-    xlsaref.append(hldrecout)
+    # determine if we need a hold record - before this record
+    if prior_booking_code in ("CLN", "HLD"):
+        # 1 record earlier is a cleaning reocrd - see if it is close enough
+        if prior_rec.get('First Night') <= clean_before_end and \
+           prior_rec.get('First Night') > clean_before_end - ADD_TWO_WEEK:
+            if prior_rec.get('Checkout Day') <= clean_before_end:
+                logger.info('Prior record works as a cleaning day: %s',
+                            {'recidx': recidx,
+                             'rec': rec})
+
+                # clear the value - prior record is it
+                hldrecin = {}
+            else:
+                # end date on cleaning does not work but start date does
+                logger.warning('Cleaning end reocrd conflicts with appt: %s',
+                               {'recidx': recidx,
+                                'rec': rec,
+                                'error': 'please fix cleaning record'})
+                sys.exit(1)
+        else:
+            # start date does not work on this so insert a new start date
+
+            # set values on this record
+            # - just use what was already calculdated - day before cleaning
+            logger.warning('using standard hold')
+            pass
+        
+    else:
+        # this is a reservation before
+        if prior_rec.get('Checkout Day') == clean_before_end:
+            # we need to do a same day cleaning
+            hldrecin['Nights'] = 0
+            hldrecin['First Night'] = clean_before_end
+        else:
+            logger.warning('using standard hold on complete')
+            # else - we just use what was calculated
+
+
+    if debug:
+        logger.warning('recidx: %s', recidx)
+        logger.warning('rec: \n%s', pp.pformat(rec))
+        logger.warning('prior rec: \n%s', pp.pformat(prior_rec))
+        logger.warning('hldrecin: \n%s', pp.pformat(hldrecin))
+
+
+    # taken an action if we have a new record to create
+    if hldrecin:
+        logger.warning('setting booking_code on new cleaning record for record: %s', recidx)
+        hold_booking_code = assign_booking_code(hldrecin, max_values)
+    else:
+        logger.warning('get next record - nothing updated on this record: %s', recidx)
+
+    # ----------------------------------------
+    
+    # POST #
+    post_booking_code = post_rec.get(BOOKING_FLD)
+    if post_booking_code:
+        post_booking_code = post_booking_code[:3]
+
+    
+    # determine if we need a hold record - before this record
+    if post_booking_code in ("CLN", "HLD"):
+        # record after this record is a cleaning record
+        # see if it is close enough that we don't need another one
+        if post_rec.get('First Night') >= clean_after_start and \
+           post_rec.get('First Night') <= clean_after_start + ADD_ONE_WEEK:
+            logger.info('Post record works as a cleaning day: %s',
+                        {'recidx': recidx,
+                         'rec': rec})
+
+            # clear the value - prior record is it
+            hldrecout = {}
+
+        else:
+            # start date does not work on this so insert a new start date
+
+            # set values on this record
+            # - just use what was already calculdated - day before cleaning
+            logger.warning('using standard post hold')
+            pass
+        
+    else:
+        # this is a reservation after
+        if post_rec.get('First Night') == clean_after_start:
+            # we need to do a same day cleaning
+            hldrecin['Nights'] = 0
+            hldrecin['Checkout Day'] = clean_after_start
+        else:
+            logger.warning('using standard hold on complete')
+            # else - we just use what was calculated
+
+
+    if debug:
+        logger.warning('recidx: %s', recidx)
+        logger.warning('rec: \n%s', pp.pformat(rec))
+        logger.warning('post rec: \n%s', pp.pformat(post_rec))
+        logger.warning('hldrecout: \n%s', pp.pformat(hldrecout))
+
+
+    # taken an action if we have a new record to create
+    if hldrecout:
+        logger.warning('setting booking_code on new cleaning record for record: %s', recidx)
+        hold_booking_code = assign_booking_code(hldrecout, max_values)
+    else:
+        logger.warning('get next record - nothing updated on this record: %s', recidx)
+
+    if debug:
+        sys.exit()
+
+    return hldrecin, hldrecout
 
 
 def update_xlsaref_records(xlsaref):
     # find the max value for each code
     max_values = None
 
+    # caputre new hold
+    new_holds = list()
+    
+    # only calculate this if we need it
+    max_values = find_max_value_per_booking_code(xlsaref)
+    
     # first sweep through and populated records with code
     for recidx, rec in enumerate(xlsaref):
         if not rec[BOOKING_FLD]:
-            if max_values is None:
-                # only calculate this if we need it
-                max_values = find_max_value_per_booking_code(xlsaref)
-
             booking_code = assign_booking_code(rec, max_values)
-            insert_holds_on_reservation(rec, recidx, xlsaref, booking_code)
+        else:
+            booking_code = rec[BOOKING_FLD]
 
+        # check to see if we return a new value
+        newholdin, newholdout = insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values)
+        if newholdin:
+            new_holds.append(newholdin)
+        if newholdout:
+            new_holds.append(newholdout)
+            
         if rec.get(REVTOTAL_FLD) and rec.get(STAYS_FLD):
             rec[REVPERDAY_FLD] = float(rec.get(REVTOTAL_FLD))/float(rec[STAYS_FLD])
+
+    # DEBUGGING
+    if False:
+        logger.warning('new_holds: \n%s', pp.pformat(new_holds))
+        sys.exit()
+        
+    # add the new records into xlsaref and then sort them
+    xlsaref.extend(new_holds)
+    xlsaref = sorted(xlsaref, key=itemgetter('First Night', 'Checkout Day'))
+
+    # DEBUGGING
+    if debug:
+        logger.warning('updated xlsaref: \n%s', pp.pformat(xlsaref))
+        sys.exit()
+
+    return xlsaref
 
 def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
     """
@@ -581,7 +734,7 @@ def load_convert_save_file(xlsfile,
         sys.exit(1)
 
     # now validate the file and fill in fields need filling and insert records needing inserting (holds)
-    update_xlsaref_records(xlsaref)
+    xlsaref = update_xlsaref_records(xlsaref)
 
     # DEBUGGING
     if False:
