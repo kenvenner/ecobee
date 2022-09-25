@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.21
+@version:  1.22
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -59,7 +59,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.21',
+        'value': '1.22',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -151,12 +151,14 @@ OCC_TYPE_CONV = {
     'Hold - Release Party': ['O', 1],
     'Hold - Harvest Party': ['O', 1],
     'Hold - Construction': ['O', 1],
+    'Hold-Renter': ['R', 1],
     'Res. - Renter': ['R', 1],
     'Res. - Owner': ['O', 1],
     'Res.-Renter': ['R', 1],
     'Res.-Owner': ['O', 1],
     'Res - Renter': ['R', 1],
     'Res - Owner': ['O', 1],
+    'Res- Renter': ['R', 1],
 }
 
 OCC_TYPE_2_BOOKING_CODE = {
@@ -173,8 +175,22 @@ REVTOTAL_FLD = 'Rent'
 STAYS_FLD = 'Nights'
 
 # xls header definition
-COL_REQUIRED = [BOOKING_FLD, 'First Night', 'Checkout Day', STAYS_FLD, 'Type', REVTOTAL_FLD, 'Source', 'Managing', 'Confirmed',
-                'BookedOn', 'HoldUntil']
+COL_REQUIRED = [
+    BOOKING_FLD,
+    'First Night',
+    'Checkout Day',
+    STAYS_FLD,
+    'Type',
+    REVTOTAL_FLD,
+    'Source',
+    'HoldUntil']
+
+# old fields
+OLD_FIELDS = [
+    'Managing',
+    'Confirmed',
+    'BookedOn',
+]
 
 COL_CENTERED = ['Nights', 'Source', 'Managing', 'Confirmed']
 
