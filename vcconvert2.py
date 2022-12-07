@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.22
+@version:  1.23
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -59,7 +59,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.22',
+        'value': '1.23',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -142,6 +142,7 @@ OCC_TYPE_CONV = {
     'Hold- Mainten': ['M', 0],
     'Hold - Maint': ['M', 0],
     'Hold - Other': ['M', 0],
+    'Hold-Owner': ['O', 1],
     'Hold - Owner': ['O', 1],
     'Hold - Renter': ['R', 1],
     'Hold - Winery Business': ['O', 0],
@@ -159,6 +160,7 @@ OCC_TYPE_CONV = {
     'Res - Renter': ['R', 1],
     'Res - Owner': ['O', 1],
     'Res- Renter': ['R', 1],
+    'Res-Renter': ['R', 1],
 }
 
 OCC_TYPE_2_BOOKING_CODE = {
@@ -433,13 +435,14 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
             if prior_rec.get('Checkout Day') <= clean_before_end:
                 logger.info('Prior record works as a cleaning day: %s',
                             {'recidx': recidx,
+                             'prior_booking_code': prior_booking_code,
                              'rec': rec})
 
                 # clear the value - prior record is it
                 hldrecin = {}
             else:
                 # end date on cleaning does not work but start date does
-                logger.warning('Cleaning end reocrd conflicts with appt: %s',
+                logger.warning('Cleaning end record conflicts with appt: %s',
                                {'recidx': recidx,
                                 'rec': rec,
                                 'error': 'please fix cleaning record'})
@@ -455,6 +458,11 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
     else:
         # this is a reservation before
         if prior_rec.get('Checkout Day') == clean_before_end:
+            if False:
+                logger.info('PRE same day hldrecin: %s', pp.pformat(hldrecin))
+                logger.info('Rec: %s', rec)
+                sys.exit()
+            
             # we need to do a same day cleaning
             hldrecin['Nights'] = 0
             hldrecin['First Night'] = clean_before_end
@@ -509,9 +517,15 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
     else:
         # this is a reservation after
         if post_rec.get('First Night') == clean_after_start:
+            if False:
+                logger.info('Post same day hldrecin: %s', pp.pformat(hldrecin))
+                logger.info('Post same day hldrecout: %s', pp.pformat(hldrecout))
+                logger.info('Rec: %s', rec)
+                sys.exit()
+            
             # we need to do a same day cleaning
-            hldrecin['Nights'] = 0
-            hldrecin['Checkout Day'] = clean_after_start
+            hldrecout['Nights'] = 0
+            hldrecout['Checkout Day'] = clean_after_start
         else:
             logger.warning('using standard hold on complete')
             # else - we just use what was calculated
@@ -567,6 +581,7 @@ def update_xlsaref_records(xlsaref):
     # DEBUGGING
     if False:
         logger.warning('new_holds: \n%s', pp.pformat(new_holds))
+        # logger.warning('xlsaref: \n%s', pp.pformat(xlsaref))
         sys.exit()
         
     # add the new records into xlsaref and then sort them
