@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.23
+@version:  1.24
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -59,7 +59,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.23',
+        'value': '1.24',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -73,7 +73,7 @@ optiondictconfig = {
         'description': 'defines the display level for print messages',
     },
     'xls_filename': {
-        'value': 'Attune_Estate_2022_Bookings.xlsx',
+        'value': 'Attune_Estate_2023_Bookings.xlsx',
         'description': 'defines the name of the BP xls filename',
     },
     'occupy_filename': {
@@ -405,14 +405,14 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
     hldrecin['Type'] = 'Hold - Clean'
     hldrecin['Nights'] = 1
     hldrecin['Source'] = 'MS-Add'
-    hldrecin['Managing'] = 'MS'
+#    hldrecin['Managing'] = 'MS' # removed 2023-01-21
     hldrecin['First Night'] = clean_before_start
     hldrecin['Checkout Day'] = clean_before_end
 
     hldrecout['Type'] = 'Hold - Clean'
     hldrecout['Nights'] = 1
     hldrecout['Source'] = 'MS-Add'
-    hldrecout['Managing'] = 'MS'
+#    hldrecout['Managing'] = 'MS' # removed 2023-01-21
     hldrecout['First Night'] = clean_after_start
     hldrecout['Checkout Day'] = clean_after_end
 
@@ -614,6 +614,15 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
 
     :return bak_filename: (str) - filename we converted the input filename into
     """
+    
+    # Debugging
+    if False:
+        header_keys = ['' if 'blank' in x else x for x in list(xlsaref[0].keys())]
+        dict_keys = [x for x in list(xlsaref[0].keys())]
+        print('header_keys:', header_keys)
+        print('dict_keys:', dict_keys)
+        print('xlsaref[0]:', xlsaref[0])
+        sys.exit()
 
     # move the file so we can output with the same filename
     fname, fext = os.path.splitext(xlsfile)
@@ -655,6 +664,8 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
     # data records
     for recidx, rec in enumerate(xlsaref, start=2):
         for colidx, key in enumerate(dict_keys, start=1):
+            if key not in rec:
+                continue
             a1 = ws.cell(row=recidx, column=colidx, value=rec[key])
             a1.font = regular
             if key in COL_CENTERED:
@@ -753,9 +764,17 @@ def load_convert_save_file(xlsfile,
     xlsaref = kvxls.readxls2list_findheader(xlsfile, req_cols=req_cols,
                                             optiondict={'dateflds': xlsdateflds, 'sheetname': 'Listing'}, debug=False)
 
+    # debugging
+    if debug:
+        print('xlsaref[0] read in:', xlsaref[0])
+
     # validate the content and set the Booking field if needed
     # and insert records for cleaning if they are not in here.
     xlsaref = filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights)
+
+    # debugging
+    if debug:
+        print('xlsaref[0] filtered:', xlsaref[0])
 
     # validate records are right
     errors = validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldType)
