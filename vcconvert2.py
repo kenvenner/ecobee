@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.24
+@version:  1.25
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -59,7 +59,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.24',
+        'value': '1.25',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -73,7 +73,7 @@ optiondictconfig = {
         'description': 'defines the display level for print messages',
     },
     'xls_filename': {
-        'value': 'Attune_Estate_2023_Bookings.xlsx',
+        'value': 'Attune_Estate_2024_Bookings.xlsx',
         'description': 'defines the name of the BP xls filename',
     },
     'occupy_filename': {
@@ -153,6 +153,7 @@ OCC_TYPE_CONV = {
     'Hold - Harvest Party': ['O', 1],
     'Hold - Construction': ['O', 1],
     'Hold-Renter': ['R', 1],
+    'Owners Hold': ['O', 1],
     'Res. - Renter': ['R', 1],
     'Res. - Owner': ['O', 1],
     'Res.-Renter': ['R', 1],
@@ -479,7 +480,8 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
 
 
     # taken an action if we have a new record to create
-    if hldrecin:
+    # 2024-02-07;kv - removed the insert/addition of this record
+    if hldrecin or 0:
         logger.warning('setting booking_code on new cleaning record for record: %s', recidx)
         hold_booking_code = assign_booking_code(hldrecin, max_values)
     else:
@@ -539,7 +541,8 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
 
 
     # taken an action if we have a new record to create
-    if hldrecout:
+    # 2024-02-07;kv - removed the insert/addition of this record
+    if hldrecout or 0:
         logger.warning('setting booking_code on new cleaning record for record: %s', recidx)
         hold_booking_code = assign_booking_code(hldrecout, max_values)
     else:
@@ -568,13 +571,17 @@ def update_xlsaref_records(xlsaref):
         else:
             booking_code = rec[BOOKING_FLD]
 
-        # check to see if we return a new value
-        newholdin, newholdout = insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values)
-        if newholdin:
-            new_holds.append(newholdin)
-        if newholdout:
-            new_holds.append(newholdout)
-            
+
+        # remove the holds in and out 2024-02-07;kv
+        if False:
+            # check to see if we return a new value
+            newholdin, newholdout = insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values)
+            if newholdin:
+                new_holds.append(newholdin)
+            if newholdout:
+                new_holds.append(newholdout)
+
+        # calculate the $/night
         if rec.get(REVTOTAL_FLD) and rec.get(STAYS_FLD):
             rec[REVPERDAY_FLD] = float(rec.get(REVTOTAL_FLD))/float(rec[STAYS_FLD])
 
