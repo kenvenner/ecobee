@@ -153,6 +153,8 @@ OCC_TYPE_CONV = {
     'Hold - Harvest Party': ['O', 1],
     'Hold - Construction': ['O', 1],
     'Hold-Renter': ['R', 1],
+    'Hold-Owner': ['O', 1],
+    'Karli Vendor Tour': ['O', 1],
     'Owners Hold': ['O', 1],
     'Res. - Renter': ['R', 1],
     'Res. - Owner': ['O', 1],
@@ -162,6 +164,12 @@ OCC_TYPE_CONV = {
     'Res - Owner': ['O', 1],
     'Res- Renter': ['R', 1],
     'Res-Renter': ['R', 1],
+    'Hold - Owner Scribner': ['O', 1],
+    'Owners Hold - Harvest': ['O', 1],
+    'Owners Hold - Venner': ['O', 1],
+    'Owners Hold- Venner': ['O', 1],
+    'Karli Vendor Tour': ['O', 1],
+
 }
 
 OCC_TYPE_2_BOOKING_CODE = {

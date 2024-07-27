@@ -190,9 +190,12 @@ def readSave_thermoSensor_rtn_therms( ecobee, temperature_filename, debug=False 
         if temperature_filename:
             # check to see if the file exists
             exists = os.path.isfile( temperature_filename )
-        
+
+            # determine the open type
+            open_type = 'a' if exists else 'w'
+            
             # now open a file and dump the values collected
-            with open( temperature_filename, 'a' ) as t:
+            with open( temperature_filename, open_type ) as t:
                 # check to see if the file exists - and if it did not - create header in the file
                 if not exists:
                     # create the header for the file as we created the file
@@ -354,6 +357,7 @@ def connect_app_and_account(optiondict):
     # STEP3 - create the ecobee object with no configuration file - we are starting new here
     logger.info( "Building ecobee object" )
     ecobee = pyecobee.Ecobee(api_key=optiondict['api_key'],config_filename=optiondict['config_filename'])
+#    ecobee = pyecobee.Ecobee(config_filename=optiondict['config_filename'], config={'API_KEY': optiondict['api_key']})
 
     
     # STEP4 - should have failed, but if it did not - then no work to do - exit
@@ -429,7 +433,8 @@ if __name__ == '__main__':
         
     # create the ecobee object
     logger.info( "Building ecobee object - it may refresh the tokens and update config file:%s",optiondict['config_filename'] )
-    ecobee =  pyecobee.Ecobee(api_key=optiondict['api_key'],config_filename=optiondict['config_filename'])
+    ecobee = pyecobee.Ecobee(api_key=optiondict['api_key'],config_filename=optiondict['config_filename'])
+#    ecobee = pyecobee.Ecobee(config_filename=optiondict['config_filename'], config={'API_KEY': optiondict['api_key']})
 
     # read in therms, save data, and get therm values
     logger.info( 'Fetch ecobee thermostat data - save temp readings to file:%s', optiondict['temperature_filename'])
