@@ -1,0 +1,15 @@
+python-ecobee-api==0.0.19
+google-api-python-client
+google-auth
+google-auth-httplib2
+google-auth-oauthlib
+simplejson
+openpyxl
+python-dateutil
+pytz
+xlrd
+XlsxWriter
+xlutils
+xlwt
+matplotlib
+numpy

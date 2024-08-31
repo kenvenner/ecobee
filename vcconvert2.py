@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.25
+@version:  1.26
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -59,7 +59,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.25',
+        'value': '1.26',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -136,39 +136,37 @@ DATE_FMT = '%m/%d/%Y'
 # xls file occtype conversion to
 # an array that is:  new code and # of days to add to stay for temp control
 OCC_TYPE_CONV = {
-    'Hold-Deep Clean': ['M', 0],
     'Hold - Clean': ['C', 0],
-    'Hold - Maint.': ['M', 0],
-    'Hold- Mainten': ['M', 0],
-    'Hold - Maint': ['M', 0],
-    'Hold - Other': ['M', 0],
-    'Hold-Owner': ['O', 1],
-    'Hold - Owner': ['O', 1],
-    'Hold - Renter': ['R', 1],
-    'Hold - Winery Business': ['O', 0],
-    'Hold - Fall Mbr Event': ['O', 1],
-    'Hold - Venner': ['O', 1],
-    'Hold - Scribner': ['O', 1],
-    'Hold - Release Party': ['O', 1],
-    'Hold - Harvest Party': ['O', 1],
     'Hold - Construction': ['O', 1],
-    'Hold-Renter': ['R', 1],
-    'Hold-Owner': ['O', 1],
-    'Karli Vendor Tour': ['O', 1],
-    'Owners Hold': ['O', 1],
-    'Res. - Renter': ['R', 1],
-    'Res. - Owner': ['O', 1],
-    'Res.-Renter': ['R', 1],
-    'Res.-Owner': ['O', 1],
-    'Res - Renter': ['R', 1],
-    'Res - Owner': ['O', 1],
-    'Res- Renter': ['R', 1],
-    'Res-Renter': ['R', 1],
+    'Hold - Fall Mbr Event': ['O', 1],
+    'Hold - Harvest Party': ['O', 1],
+    'Hold - Maint': ['M', 0],
+    'Hold - Maint.': ['M', 0],
+    'Hold - Other': ['M', 0],
     'Hold - Owner Scribner': ['O', 1],
+    'Hold - Owner': ['O', 1],
+    'Hold - Release Party': ['O', 1],
+    'Hold - Renter': ['R', 1],
+    'Hold - Scribner': ['O', 1],
+    'Hold - Venner': ['O', 1],
+    'Hold - Winery Business': ['O', 0],
+    'Hold- Mainten': ['M', 0],
+    'Hold-Deep Clean': ['M', 0],
+    'Hold-Owner': ['O', 1],
+    'Hold-Renter': ['R', 1],
+    'Karli Vendor Tour': ['O', 1],
     'Owners Hold - Harvest': ['O', 1],
     'Owners Hold - Venner': ['O', 1],
+    'Owners Hold': ['O', 1],
     'Owners Hold- Venner': ['O', 1],
-    'Karli Vendor Tour': ['O', 1],
+    'Res - Owner': ['O', 1],
+    'Res - Renter': ['R', 1],
+    'Res- Renter': ['R', 1],
+    'Res-Renter': ['R', 1],
+    'Res. - Owner': ['O', 1],
+    'Res. - Renter': ['R', 1],
+    'Res.-Owner': ['O', 1],
+    'Res.-Renter': ['R', 1],
 
 }
 
