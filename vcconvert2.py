@@ -157,6 +157,7 @@ OCC_TYPE_CONV = {
     'Karli Vendor Tour': ['O', 1],
     'Owners Hold - Harvest': ['O', 1],
     'Owners Hold - Venner': ['O', 1],
+    'Owners Hold - Scribner': ['O', 1],
     'Owners Hold': ['O', 1],
     'Owners Hold- Venner': ['O', 1],
     'Res - Owner': ['O', 1],
@@ -165,6 +166,7 @@ OCC_TYPE_CONV = {
     'Res-Renter': ['R', 1],
     'Res. - Owner': ['O', 1],
     'Res. - Renter': ['R', 1],
+    'Rest - Renter': ['R', 1],
     'Res.-Owner': ['O', 1],
     'Res.-Renter': ['R', 1],
 
