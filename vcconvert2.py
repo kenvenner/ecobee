@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.26
+@version:  1.27
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -59,7 +59,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.26',
+        'value': '1.27',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -79,6 +79,10 @@ optiondictconfig = {
     'occupy_filename': {
         'value': 'stays.txt',
         'description': 'defines the name of the file holding the villa occupancy',
+    },
+    'pool_heater_allowed_filename': {
+        'value': 'pool_heater_allowed.txt',
+        'description': 'defines the name of the file holding the days the pool heater is allowed',
     },
     'occupy_history_filename': {
         'value': 'stays_history.txt',
@@ -184,6 +188,8 @@ BOOKING_FLD = 'Booking'
 REVPERDAY_FLD = "RevPerDay"
 REVTOTAL_FLD = 'Rent'
 STAYS_FLD = 'Nights'
+POOL_FLD = 'PoolEnabled'
+
 
 # xls header definition
 COL_REQUIRED = [
@@ -759,6 +765,7 @@ def load_convert_save_file(xlsfile,
                            fldType,
                            xlsdateflds,
                            fldLastNight,
+                           pool_heater_allowed_filename,
                            debug=False):
     """
     Load convert and save the file - this is like a main_function()
@@ -769,6 +776,7 @@ def load_convert_save_file(xlsfile,
     :param fldFirstNight: (str) - column header that captures the first night the villa is occupied (date field)
     :param fldNights: (str) - column header that captures the number of nights the villa is occupied (int)
     :param xlsdateflds: (list of str) - column headers that are date fields that must be converted
+    :param pool_allowed_heater_filename: (str) - name of the putput file that houses the days that pool ON is enabled
     :param debug: (bool) - when set, we run in debug mode.
 
     """
@@ -826,9 +834,13 @@ def load_convert_save_file(xlsfile,
 
     # get the current date
     now = datetime.datetime.now()
+    yesterday = now - datetime.timedelta(days=1)
 
     # logging
     logger.info('Create occupancy file:%s', occupy_filename)
+
+    # capture the dates that we need to output
+    pool_heater_allowed_dates = []
 
     # create the output file and start the conversion/output process
     with open(occupy_filename, 'w') as t:
@@ -852,6 +864,11 @@ def load_convert_save_file(xlsfile,
 
             # for each night of stay - plus occ_type days to model the day the guest exits
             for cnt in range(int(rec[fldNights]) + OCC_TYPE_CONV[rec[fldType]][1]):
+                # check to see if this date is pool heater enabled
+                if POOL_FLD in rec and rec[POOL_FLD]:
+                    if eventdate not in pool_heater_allowed_dates and eventdate >= yesterday:
+                        pool_heater_allowed_dates.append(eventdate)
+
                 # skip the date if this date matches the exit date of the prior
                 if eventdate == exitdate:
                     # skip the date if this date matches the exit date of the prior
@@ -883,8 +900,19 @@ def load_convert_save_file(xlsfile,
             if rec['startdate'] < now and rec['exitdate'] > now:
                 current_guest_start = rec['startdate']
 
-        # return the BP file with modifications
-        return xlsaref, current_guest_start
+
+    # create a file pointer to open this desired file
+    if pool_heater_allowed_dates:
+        # dump records out
+        with open(pool_heater_allowed_filename, 'w') as phaf:
+            # output each date in the MM/DD/YYYY format
+            for pool_date in pool_heater_allowed_dates:
+                phaf.write('%s\n' % (datetime.datetime.strftime(pool_date, DATE_FMT)))
+
+        logger.info('Create pool allowed file:%s', pool_heater_allowed_filename)
+    
+    # return the BP file with modifications
+    return xlsaref, current_guest_start
 
 
 # routine that read in the history stays file and the current stays files and addes to
@@ -961,8 +989,10 @@ if __name__ == '__main__':
                                                           optiondict['fldType'],
                                                           optiondict['xlsdateflds'],
                                                           optiondict['fldLastNight'],
+                                                          optiondict['pool_heater_allowed_filename'],
                                                           debug=optiondict['debug'])
 
+    
     # if the google calendar sync flag is set - sync
     if optiondict['calendarsync']:
         # determine the starting date for the run
