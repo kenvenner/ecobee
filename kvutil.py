@@ -3,7 +3,7 @@ from __future__ import print_function
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.71
+@version:  1.75
 
 Library of tools used in general by KV
 '''
@@ -31,8 +31,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # set the module version number
-AppVersion = '1.71'
-__version__ = '1.71'
+AppVersion = '1.75'
+__version__ = '1.75'
 HELP_KEYS = ('help', 'helpall',)
 HELP_VALUE_TABLE = ('tbl', 'table', 'helptbl', 'fmt',)
 
@@ -1135,7 +1135,7 @@ def any_field_is_populated(rec, copy_fields):
 def set_blank_field_values(src_data, set_blank_fields):
     '''
     For each record in src_data
-    For each column defined in set_blank_fields dictionary
+    For each column defined in set_blank_fields dictionary (if it is spaces it will not overwrite/update)
     Check the record column value and if not set, then set it to the value from set_blank__fields
 
     src_data - list of dictionaries
@@ -1148,6 +1148,31 @@ def set_blank_field_values(src_data, set_blank_fields):
             # if key in record and this column has no data
             if k in rec and not rec[k]:
                 rec[k] = v
+                record_updated = True
+        # increment count if we updated the record
+        if record_updated:
+            records_updated += 1
+    # return the number of records update
+    return records_updated
+
+
+# for a list of records and a dictionary with defaults - set columns if blank
+def convert_hyperlink_field_values(src_data, hyperlink_fields):
+    '''
+    For each record in src_data
+    For each column defined in hyperlink_fields list
+    Check the record column value and if not set, then set it to the value from set_blank__fields
+
+    src_data - list of dictionaries
+    hyperlink_fields - list of columns to check and update
+    '''
+    records_updated = 0 
+    for rec in src_data:
+        record_updated = False
+        for fld in hyperlink_fields:
+            # if key in record and this column has no data
+            if fld in rec and rec[fld] and rec[fld].startswith('=HYPERLINK'):
+                rec[fld] = rec[fld][11:-1]
                 record_updated = True
         # increment count if we updated the record
         if record_updated:
@@ -1187,6 +1212,72 @@ def create_multi_key_lookup(src_data, fldlist, copy_fields=None):
                 print('ERROR:  Unable to find copy field: ', fld)
                 print('in first record:')
                 pprint.pprint(src_data[0])
+                print('This routine will fail')
+    #
+    # set up the dictionary to be populated
+    src_lookup = {}
+    # step through each record
+    for rec in src_data:
+        # test that this record has values in the copy_fields attributes
+        if copy_fields and not any_field_is_populated(rec, copy_fields):
+            # no values set in copy_fields has a value so we don't convert this record
+            continue
+        # get the first key
+        if rec[fldlist[0]] not in src_lookup:
+            if len(fldlist) > 1:
+                # multi key
+                src_lookup[rec[fldlist[0]]] = {}
+            else:
+                # single key - set the value
+                src_lookup[rec[fldlist[0]]] = rec
+        # now create the changing key
+        ptr = src_lookup[rec[fldlist[0]]]
+        # now work through other keys
+        for fld in fldlist[1:]:
+            # check to see this level is working
+            if rec[fld] not in ptr:
+                ptr[rec[fld]] = {}
+            # if we are on the last fld then set to rec
+            if fld == fldlist[-1]:
+                ptr[rec[fld]] = rec
+            else:
+                # update the ptr
+                ptr = ptr[rec[fld]]
+    #
+    return src_lookup
+
+
+# create a multi-key dictionary from a list of dictionaries
+def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
+    '''
+    Create a multi key dictionary that gets to the record based on the
+    keys in the record
+
+    if user sets the copy_fields with the list of fields that can have values
+    then we check the record
+    to determine if any of the fields has a value, and if none have a value we skip
+    that record
+    '''
+    if type(fldlist) is not list:
+        print('fldlist must be type - list - but is: ', type(fldlist))
+        raise TypeError()
+    # check that the fldlist keys are in the first record
+    for fld in fldlist:
+        if fld not in excel_dict['header']:
+            print('ERROR:  Unable to find key field: ', fld)
+            print('in the header:')
+            pprint.pprint(excel_dict['header'])
+            print('This routine will fail')
+    # check that the copy_fields keys are in the first record
+    if copy_fields:
+        if type(copy_fields) is not list:
+            print('copy_fields must be type - list - but is: ', type(copy_fields))
+            raise TypeError()
+        for fld in copy_fields:
+            if fld not in excel_dict['header']:
+                print('ERROR:  Unable to find copy field: ', fld)
+                print('in the header:')
+                pprint.pprint(excel_dict['header'])
                 print('This routine will fail')
     #
     # set up the dictionary to be populated
@@ -1278,5 +1369,46 @@ def copy_matched_data(dst_data, src_lookup, key_fields, copy_fields):
             rec[cfld] = ptr[cfld]
     # return the number of records that matched
     return matched_recs
+
+
+def extract_unmatched_data(src_data, dst_lookup, key_fields):
+    '''
+    return the list of records in src_data that are no longer in dst_lookup
+    '''
+    # make sure we passed in a list
+    if type(key_fields) is not list:
+        print('key_fields must be type - list - but is: ', type(key_fields))
+        raise TypeError()
+    # check that the key_fields keys are in the first record
+    for fld in key_fields:
+        if fld not in src_data[0]:
+            print('ERROR:  Unable to find key_field field: ', fld)
+            print('in first record:')
+            pprint.pprint(src_data[0])
+            print('This routine will fail')
+    #
+    # capture the count of matched records
+    unmatched_recs = []
+    # step through the src_data
+    for rec in src_data:
+        # cpature if we have a match
+        matched = True
+        # capture the pointer
+        ptr = dst_lookup
+        # step through the key_fields and see if we find a matching record
+        for fld in key_fields:
+            # there is a match
+            if rec[fld] in ptr:
+                ptr = ptr[rec[fld]]
+            else:
+                matched = False
+                # stop looking for match on this record
+                break
+        # check to see if we did match get next record
+        if not matched:
+            # there was not a match - that is what we are looking for
+            unmatched_recs.append(rec)
+    # return the number of records that matched
+    return unmatched_recs
 
 # eof

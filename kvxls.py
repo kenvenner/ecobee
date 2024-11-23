@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.23
+@version:  1.25
 
 Library of tools used to process XLS/XLSX files
 '''
@@ -10,6 +10,7 @@ import openpyxl  # xlsx (read/write)
 import xlrd  # xls (read)
 import xlwt  # xls (write)
 import os  # determine if a file exists
+import pprint
 
 import kvdate
 import kvmatch
@@ -22,7 +23,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # global variables
-AppVersion = '1.23'
+AppVersion = '1.25'
 
 # ----- OPTIONS ---------------------------------------
 # debug
@@ -141,7 +142,7 @@ def setExcelCellValue(excel_dict, row, col_name, value, debug=False):
         raise
 
 
-# routine to get a cell fill pattern - returns the (solid,rgb) values
+# routine to get a cell fill pattern - returns the (rgb, solid) values
 def getExcelCellPatternFill(excel_dict, row, col_name, debug=False):
     if debug:
         print('setExcelCellPatternFill:excel_dict:', excel_dict)
@@ -154,10 +155,27 @@ def getExcelCellPatternFill(excel_dict, row, col_name, debug=False):
     # determine the col # we are using but doing a header lookup
     col = excel_dict['header'].index(col_name) + excel_dict['sheetmincol']
 
+    # debugging
+    if debug:
+        print('pattern')
+        print('col_name:', col_name)
+        print('col:', col)
+        print('row:', row)
+        print('value:', excel_dict['s'].cell(row=row + 1, column=col + 1).value)
+
+    # return none if no style
+    if not excel_dict['s'].cell(row=row + 1, column=col + 1).has_style:
+        return None, None, None, None
+        
     # get cell value
     if excel_dict['xlsxfiletype']:
+        # get fill settings
         cell_fill = excel_dict['s'].cell(row=row + 1, column=col + 1).fill
-        return cell_fill.solid, cell_fill.fgColor.rgb
+        # debugging
+        if debug:
+            print('start:', cell_fill.start_color, 'end:', cell_fill.end_color, 'color:', cell_fill.fgColor.rgb)
+        # return cell_fill
+        return cell_fill.fgColor.rgb, cell_fill.fill_type, cell_fill.start_color, cell_fill.end_color
     else:
         logger.error('feature not supported on xls file - only XLSX')
         print('kvxls:setExcelCellValue:feature not supported on xls file - only XLSX')
@@ -165,7 +183,7 @@ def getExcelCellPatternFill(excel_dict, row, col_name, debug=False):
 
 
 # routine to set a cell fill pattern
-def setExcelCellPatternFill(excel_dict, row, col_name, fg_color, fill_type="solid", debug=False):
+def setExcelCellPatternFill(excel_dict, row, col_name, fill=None, start_color=None, end_color=None, fg_color=None, fill_type="solid", debug=False):
     if debug:
         print('setExcelCellPatternFill:excel_dict:', excel_dict)
         print('setExcelCellPatternFill:row:', row)
@@ -179,23 +197,149 @@ def setExcelCellPatternFill(excel_dict, row, col_name, fg_color, fill_type="soli
 
     # get cell value
     if excel_dict['xlsxfiletype']:
-        if not fill_type:
+        if start_color:
+            excel_dict['s'].cell(row=row + 1, column=col + 1).fill = openpyxl.styles.PatternFill(fill_type=fill_type,
+                                                                                                 start_color=start_color,
+                                                                                                 end_color=end_color)
+        elif fill:
+            excel_dict['s'].cell(row=row + 1, column=col + 1).fill = copy(fill)
+        elif not fill_type:
             excel_dict['s'].cell(row=row + 1, column=col + 1).fill = openpyxl.styles.PatternFill(fill_type=None)
         else:
-            excel_dict['s'].cell(row=row + 1, column=col + 1).fill = openpyxl.styles.PatternFill(fill_type,
+            excel_dict['s'].cell(row=row + 1, column=col + 1).fill = openpyxl.styles.PatternFill(fill_type=fill_type,
                                                                                                  fgColor=fg_color)
     else:
         logger.error('feature not supported on xls file - only XLSX')
         print('kvxls:setExcelCellValue:feature not supported on xls file - only XLSX')
         raise
 
+# copy the cell formatting from src into out cell by cell - this is color and fill
+def copyExcelCellFmtOnRow(excel_dict_src, src_row, excel_dict_out, row, debug=False):
+    # step through the output columns
+    for fld in excel_dict_out['header']:
+        # validate the out column exists in the source
+        if fld not in excel_dict_src['header']:
+            # not in so get next field
+            continue
+        # grab the color and field for this row/column
+        fg_color, fill_type, start_color, end_color = getExcelCellPatternFill(excel_dict_src, src_row, fld, debug=debug)
+
+        if debug:
+            print('OnRow - fg_color:', fg_color, 'fill_type:', fill_type)
+
+        # take no action if 
+        if fill_type is None and fg_color is None and start_color is None and end_color is None:
+            continue
+        
+        # now copy this over to the out
+        setExcelCellPatternFill(
+            excel_dict_out,
+            row,
+            fld,
+            fill=None,
+            start_color=start_color,
+            end_color=end_color,
+            fg_color=fg_color,
+            fill_type=fill_type,
+            debug=debug
+        )
+
+# updated in place for a column the values in that column
+def setExcelColumnValue(excel_dict, col_name, value='', debug=False):
+    '''
+    Find the column, then clear all cell values in that column
+    Then iterate through that column and set the values
+    '''
+    for row in range(excel_dict['row_header']+1, excel_dict['sheetmaxrow']):
+        setExcelCellValue(excel_dict, row, col_name, value, debug)
+
+
+
+
+# create a multi-key dictionary from a excel object
+# this was taken and modified from kvutil that does
+# the same thing but for lists
+def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
+    '''
+    Create a multi key dictionary that gets to the record based on the
+    keys in the record
+
+    if user sets the copy_fields with the list of fields that can have values
+    then we check the record
+    to determine if any of the fields has a value, and if none have a value we skip
+    that record
+    '''
+    if type(fldlist) is not list:
+        print('fldlist must be type - list - but is: ', type(fldlist))
+        raise TypeError()
+    # check that the fldlist keys are in the first record
+    for fld in fldlist:
+        if fld not in excel_dict['header']:
+            print('ERROR:  Unable to find key field: ', fld)
+            print('in the header:')
+            pprint.pprint(excel_dict['header'])
+            print('This routine will fail')
+    # check that the copy_fields keys are in the first record
+    if copy_fields:
+        if type(copy_fields) is not list:
+            print('copy_fields must be type - list - but is: ', type(copy_fields))
+            raise TypeError()
+        for fld in copy_fields:
+            if fld not in excel_dict['header']:
+                print('ERROR:  Unable to find copy field: ', fld)
+                print('in the header:')
+                pprint.pprint(excel_dict['header'])
+                print('This routine will fail')
+    #
+    # set up the dictionary to be populated
+    src_lookup = {}
+    # step through each record
+    for row in range(excel_dict['row_header']+1, excel_dict['sheetmaxrow']):
+        # test that this record has values in the copy_fields attributes
+        ## TODO - build out this logic 
+        if False and copy_fields and not any_field_is_populated(rec, copy_fields):
+            # no values set in copy_fields has a value so we don't convert this record
+            continue
+        # get the first key and value
+        fld = fldlist[0]
+        fldvalue = getExcelCellValue(excel_dict, row, fld)
+        if fldvalue not in src_lookup:
+            if len(fldlist) > 1:
+                # multi key
+                src_lookup[fldvalue] = {}
+            else:
+                # single key - set the value
+                src_lookup[fldvalue] = row
+        # now create the changing key
+        ptr = src_lookup[fldvalue]
+        # now work through other keys
+        for fld in fldlist[1:]:
+            # get the value
+            fldvalue = getExcelCellValue(excel_dict, row, fld)
+            # check to see this level is working
+            if getExcelCellValue(excel_dict, row, fld) not in ptr:
+                ptr[fldvalue] = {}
+            # if we are on the last fld then set to rec
+            if fld == fldlist[-1]:
+                ptr[fldvalue] = row
+            else:
+                # update the ptr
+                ptr = ptr[fldvalue]
+    #
+    return src_lookup
+
+
 
 # -------- READ FILES -------------------------
 
 # read in the XLS and create a dictionary to the records
 # assumes the first line of the XLS file is the header/defintion of the XLS
-def readxls2list(xlsfile, sheetname=None, save_row=False, debug=False):
-    optiondict = {'col_header': True, 'save_row': save_row}
+def readxls2list(xlsfile, sheetname=None, save_row=False, debug=False, optiondict=None):
+    if optiondict is None:
+        optiondict = {'col_header': True, 'save_row': save_row}
+    else:
+        optiondict['col_header'] = True
+        optiondict['save_row'] = save_row
     if sheetname:
         optiondict['sheetname'] = sheetname
     return readxls2list_findheader(xlsfile, [], optiondict=optiondict, debug=debug)
@@ -204,8 +348,12 @@ def readxls2list(xlsfile, sheetname=None, save_row=False, debug=False):
 # read in the XLS and create a dictionary to the records
 # based on one or more key fields
 # assumes the first line of the CSV file is the header/defintion of the CSV
-def readxls2dict(xlsfile, dictkeys, sheetname=None, save_row=False, dupkeyfail=False, debug=False):
-    optiondict = {'col_header': True, 'save_row': save_row}
+def readxls2dict(xlsfile, dictkeys, sheetname=None, save_row=False, dupkeyfail=False, debug=False, optiondict=None):
+    if optiondict is None:
+        optiondict = {'col_header': True, 'save_row': save_row}
+    else:
+        optiondict['col_header'] = True
+        optiondict['save_row'] = save_row
     if sheetname:
         optiondict['sheetname'] = sheetname
     return readxls2dict_findheader(xlsfile, dictkeys, [], optiondict=optiondict, debug=debug, dupkeyfail=dupkeyfail)
@@ -292,7 +440,8 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
     no_header = False  # if true - there are no headers read - we either return
     aref_result = False  # if true - we don't return dicts, we return a list
     save_row = False  # if true - then we append/save the XLSRow with the record
-
+    keep_vba = True  # if true - then load the xlsx with vba scripts on and save as xlsm
+    
     start_row = 0  # if passed in - we start the search at this row (starts at 1 or greater)
 
     max_rows = 100000000
@@ -310,6 +459,7 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
         'arefresult': 'aref_result',
         'arefresults': 'aref_result',
         'aref_results': 'aref_result',
+        'keepvba': 'keep_vba',
         'maxrow': 'max_rows',
         'max_row': 'max_rows',
         'maxrows': 'max_rows',
@@ -330,6 +480,7 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
                                                   'start_row'] - 1  # because we are not ZERO based in the users mind
     if 'save_row' in optiondict: save_row = optiondict['save_row']
     if 'max_rows' in optiondict: max_rows = optiondict['max_rows']
+    if 'keep_vba' in optiondict: keep_vba = optiondict['keep_vba']
 
     # debugging
     if debug:
@@ -340,6 +491,7 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
         print('save_row:', save_row)
         print('optiondict:', optiondict)
         print('max_rows:', max_rows)
+        print('keep_vba:', keep_vba)
     logger.debug('col_header:%s', col_header)
     logger.debug('aref_result:%s', aref_result)
     logger.debug('no_header:%s', no_header)
@@ -362,7 +514,7 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
         if data_only:
             wb = openpyxl.load_workbook(xlsfile, data_only=True)
         else:
-            wb = openpyxl.load_workbook(xlsfile, read_only=False, keep_vba=True)
+            wb = openpyxl.load_workbook(xlsfile, read_only=False, keep_vba=keep_vba)
         sheet_names = wb.sheetnames
     else:
         # XLS file
@@ -374,7 +526,7 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
     logger.debug('sheet_names:%s', sheet_names)
 
     # get the sheet we are going to work with
-    if 'sheetname' in optiondict:
+    if 'sheetname' in optiondict and optiondict['sheetname']:
         sheet_name = optiondict['sheetname']
     elif 'sheetrow' in optiondict:
         sheet_name = sheet_names[optiondict['sheetrow']]
@@ -518,6 +670,7 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
     excel_dict = {
         'xlsfile': xlsfile,
         'xlsxfiletype': xlsxfiletype,
+        'keep_vba': keep_vba,
         'wb': wb,
         'sheet_names': sheet_names,
         'sheet_name': sheet_name,
@@ -547,6 +700,7 @@ def readxls_findheader(xlsfile, req_cols, xlatdict=None, optiondict=None, col_ar
 # # save the file
 # kvxls.writexls( xls, 'newfile.xlsm' )
 #
+
 #
 # generic routine that reads in the XLS and returns back a dictionary for that xls
 # that is either used to interact with that XLS object, or is passed to other routines
@@ -584,7 +738,8 @@ def chgsheet_findheader(excel_dict, req_cols, xlatdict=None, optiondict=None,
     no_header = False  # if true - there are no headers read - we either return
     aref_result = False  # if true - we don't return dicts, we return a list
     save_row = False  # if true - then we append/save the XLSRow with the record
-
+    keep_vba = True  # if true - we load the file and keep vba
+    
     start_row = 0  # if passed in - we start the search at this row (starts at 1 or greater)
 
     max_rows = 100000000
@@ -602,6 +757,7 @@ def chgsheet_findheader(excel_dict, req_cols, xlatdict=None, optiondict=None,
         'arefresult': 'aref_result',
         'arefresults': 'aref_result',
         'aref_results': 'aref_result',
+        'keepvba': 'keep_vba',
         'maxrow': 'max_rows',
         'max_row': 'max_rows',
         'maxrows': 'max_rows',
@@ -622,6 +778,7 @@ def chgsheet_findheader(excel_dict, req_cols, xlatdict=None, optiondict=None,
                                                   'start_row'] - 1  # because we are not ZERO based in the users mind
     if 'save_row' in optiondict: save_row = optiondict['save_row']
     if 'max_rows' in optiondict: max_rows = optiondict['max_rows']
+    if 'keep_vba' in optiondict: keep_vba = optiondict['keep_vba']
 
     # debugging
     if debug:
@@ -786,6 +943,7 @@ def chgsheet_findheader(excel_dict, req_cols, xlatdict=None, optiondict=None,
     excel_dict = {
         'xlsfile': xlsfile,
         'xlsxfiletype': xlsxfiletype,
+        'keep_vba': keep_vba,
         'wb': wb,
         'sheet_names': sheet_names,
         'sheet_name': sheet_name,
@@ -1249,22 +1407,31 @@ def writelist2xls(xlsfile, data, col_aref=None, optiondict=None, debug=False):
 
 
 # write out a XLSX object in memory
-def writexls(excelDict, xlsfile, debug=False):
+def writexls(excel_dict, xlsfile, xlsm=False, debug=False):
     # check to see that we can do this
-    if not excelDict['xlsxfiletype']:
+    if not excel_dict['xlsxfiletype']:
         print('kvxls:writexls:feature supported only for XLSX files')
         raise
 
     # if the user did not pass in a filename
     # us the same filename we read in
     if not xlsfile:
-        xlsfile = excelDict['xlsfile']
+        xlsfile = excel_dict['xlsfile']
+
+    # change the file extention to xlsm if flag is set
+    if xlsm or excel_dict['keep_vba']:
+        filename, file_ext = os.path.splitext(xlsfile)
+        xlsfile = filename + '.xlsm'
 
     # get the workbook
-    wb = excelDict['wb']
+    wb = excel_dict['wb']
 
     # now save this object
-    return wb.save(xlsfile)
+    wb.save(xlsfile)
+
+    # return the filename just saed
+    return xlsfile
+
 
 
 if __name__ == '__main__':
