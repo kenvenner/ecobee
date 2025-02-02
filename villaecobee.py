@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.15
+@version:  1.16
 
 Read data from ecobee thermostats, and store to file
 Read occupancy from flat file
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion' : {
-        'value': '1.15',
+        'value': '1.16',
         'description' : 'defines the version number for the app',
     },
     'debug' : {
@@ -219,7 +219,7 @@ def readSave_thermoSensor_rtn_therms( ecobee, temperature_filename, debug=False 
             for capability in rSensor['capability']:
                 sensors[rSensor['name']][capability['type']] = capability['value']
             # capture if this sensor says we are occupied
-            if not occupied and sensors[rSensor['name']]['occupancy']:
+            if not occupied and sensors[rSensor['name']]['occupancy'] == 'true':
                 occupied = True
 
         # Save results to file if a filename is provided
