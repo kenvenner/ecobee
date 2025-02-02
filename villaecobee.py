@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.14
+@version:  1.15
 
 Read data from ecobee thermostats, and store to file
 Read occupancy from flat file
@@ -16,6 +16,7 @@ import kvutil
 import datetime
 import os
 import sys
+import kvgmailsendsimple
 
 # this utility queries the villa thermostats and sensor
 # saves the information to a text file for review in the future
@@ -48,7 +49,7 @@ logger = logging.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion' : {
-        'value' : '1.14',
+        'value': '1.15',
         'description' : 'defines the version number for the app',
     },
     'debug' : {
@@ -93,6 +94,36 @@ optiondictconfig = {
         'value' : 17,
         'type' : 'int',
         'description' : 'defines the hour after which to set holds on day the guest depart or the day before arrival',
+    },
+    ### Email Notification when occupied and no one is supposed to be there
+    'occupied_email_from' : {
+        'value' : '210608thSt@gmail.com',
+        'description' : 'who sends out the email about thermo says occupied and stays.txt says it is not',
+    },
+    'occupied_email_to' : {
+        'value' : 'ken@vennerllc.com, mike.kmsdev2@outlook.com, reservations@michelleleighvacationrentals.com',
+#        'value' : 'ken@vennerllc.com',  # uncomment for testing purposes
+        'description' : 'defines the list of emails we notifiy when occupied and stays.txt say not',
+    },
+    'occupied_email_subject' : {
+        'value' : 'Villa Carneros OCCUPIED when not supposed to be',
+        'description' : 'defines the header in the email generated when occupied and not stays.txt',
+    },
+    'occupied_email_body' : {
+        'value' : 'We have just detected the Villa is occupied and stays.txt file says there are no guests ',
+        'description' : 'defines the body of the message sent out when we are occupied and stays.txt says we are not',
+    },
+    'scopes' : {
+        'value' : None,
+        'description' : 'defines the gmail scopes used to generate and send emails - see kvgmailsendsimple.py',
+    },
+    'file_token_json' : {
+        'value' : None,
+        'description' : 'defines the gmail filename of the json file that contains the account token (access and refresh) ',
+    },
+    'file_credentials_json' : {
+        'value' : None,
+        'description' : 'defines the gmail filename of the json file that contains the account credentials ',
     },
     ### This section is used to connect the app to a thermostat
     ### to use this:
@@ -142,6 +173,9 @@ def readSave_thermoSensor_rtn_therms( ecobee, temperature_filename, debug=False 
     # local variables - list of therm values
     thermvals = []
 
+    # local variable - capture if any thermo says we are occupied
+    occupied = False
+
     # read in the current settings
     thermos=ecobee.get_thermostats()
 
@@ -184,7 +218,9 @@ def readSave_thermoSensor_rtn_therms( ecobee, temperature_filename, debug=False 
             sensors[rSensor['name']] = dict()
             for capability in rSensor['capability']:
                 sensors[rSensor['name']][capability['type']] = capability['value']
-
+            # capture if this sensor says we are occupied
+            if not occupied and sensors[rSensor['name']]['occupancy']:
+                occupied = True
 
         # Save results to file if a filename is provided
         if temperature_filename:
@@ -204,8 +240,13 @@ def readSave_thermoSensor_rtn_therms( ecobee, temperature_filename, debug=False 
                 for sensor in sensors:
                     t.write("%s,%s,%s,%3.1f,%3.1f,%s,%3.1f,%s,%s,%s,%s\n" % (thermo['thermostatTime'],name, hvacMode, thermo['runtime']['desiredCool']/10, thermo['runtime']['desiredHeat']/10, sensor, float(sensors[sensor]['temperature'])/10, sensors[sensor]['occupancy'],holdName,holdCool,holdHeat))
 
+    # debugging - list of sensors
+    if debug:
+        print('readSave_thermoSensor_rtn_therms:occupied:', occupied)
+        print('-'*80)
+
     # return the array of thermos values
-    return thermvals
+    return thermvals, occupied
 
 # set the thermostat to auto if it is set to off
 def set_therm_to_auto_if_off( ecobee, idx, thermos, debug=False ):
@@ -265,7 +306,11 @@ def set_temp_holds_all( ecobee, therms, holdSetting, hold_type, debug=False ):
         # debugging
         if debug:
             # pull the thermos data again
-            thermos_check =readSave_thermoSensor_rtn_therms( ecobee, None, debug=debug )
+            thermos_check, occupied = readSave_thermoSensor_rtn_therms( ecobee, None, debug=debug )
+            # print if we are occupied
+            print('-'*80)
+            print('occupied: ', occupied)
+            print('-'*80)
             # check if the change took place
             #print('set_temp_holds_all:thermos_check:')
             #pp.pprint(thermos_check)
@@ -273,6 +318,50 @@ def set_temp_holds_all( ecobee, therms, holdSetting, hold_type, debug=False ):
             (thermo1,hvacMode1,currentTemp1,holdName1,holdCool1,holdHeat1) = thermos_check[idx]
             # display it.
             print('set_temp_holds_all:thermos:', thermo1,':holdName:', holdName1, ':holdCool:', holdCool1, ':holdHeat:', holdHeat1)
+            
+
+# set temperature holds on defined thermostat
+#
+def set_temp_hold_name( ecobee, therms, holdSetting, hold_type, thermo_name, hold_hours=None, debug=False ):
+    # read in the current set of thermostats - so we have a list to work
+    thermos=ecobee.get_thermostats()
+
+    # Get values from the array that was passed in (therms)
+    (thermo,hvacMode,currentTemp,holdName,holdCool,holdHeat) = therms[0]
+    
+    # loop through the thermometers
+    for idx in range(len(thermos)):
+        # check the name and see if this is the one we want to update
+        if thermo != thermo_name:
+            continue
+        # make sure the thermostat is not off
+        set_therm_to_auto_if_off( ecobee, idx, thermos, debug=debug )
+        # The prescribed way to do this
+        #  1) if hvacMode is NOT 'auto', then set the cool and heat to the same value
+        #  2) if hvacMode is 'auto', then set the cool and heat differently.
+        #
+        # set a temperature hold - temperatue defined by therm mod and holdSetting value
+        # set_hold_temp(index, cool_temp, heat_temp, hold_type= nextTransition )
+        # result = ecobee.set_hold_temp(idx,holdSetting[hvacMode],holdSetting[hvacMode],hold_type=hold_type)
+        # decided to fill this in with the cool/heat settings uniquely - not as the same value to deal with auto.
+        result = ecobee.set_hold_temp(idx,holdSetting['cool'],holdSetting['heat'],hold_type=hold_type,hold_hours=hold_hours)
+        # print out the results of setting the hold
+        logger.info('set_temp_hold_name:therm:%s:result:%s', therms[idx][0], result)
+        # debugging
+        if debug:
+            # pull the thermos data again
+            thermos_check, occupied = readSave_thermoSensor_rtn_therms( ecobee, None, debug=debug )
+            # print if we are occupied
+            print('-'*80)
+            print('occupied: ', occupied)
+            print('-'*80)
+            # check if the change took place
+            #print('set_temp_hold_name:thermos_check:')
+            #pp.pprint(thermos_check)
+            # split up this attribute
+            (thermo1,hvacMode1,currentTemp1,holdName1,holdCool1,holdHeat1) = thermos_check[idx]
+            # display it.
+            print('set_temp_hold_name:thermos:', thermo1,':holdName:', holdName1, ':holdCool:', holdCool1, ':holdHeat:', holdHeat1)
             
 
 # determine if there is a house wide hold on temperature settings enabled
@@ -436,9 +525,9 @@ if __name__ == '__main__':
     ecobee = pyecobee.Ecobee(api_key=optiondict['api_key'],config_filename=optiondict['config_filename'])
 #    ecobee = pyecobee.Ecobee(config_filename=optiondict['config_filename'], config={'API_KEY': optiondict['api_key']})
 
-    # read in therms, save data, and get therm values
+    # read in therms, save data, get therm values, and determine if the villa is occupied
     logger.info( 'Fetch ecobee thermostat data - save temp readings to file:%s', optiondict['temperature_filename'])
-    therms = readSave_thermoSensor_rtn_therms(ecobee, optiondict['temperature_filename'], debug=debug )
+    therms, occupied = readSave_thermoSensor_rtn_therms(ecobee, optiondict['temperature_filename'], debug=debug )
 
     # validate that we were authenticated after we called in
     if not ecobee.authenticated:
@@ -452,11 +541,33 @@ if __name__ == '__main__':
     # addition debug data
     logger.info('systemHoldOn:%s', systemHoldOn)
     logger.info('therms:%s',therms)
+    logger.info('occupied:%s',occupied)
     
     # read in the villa occupancy information
     logger.info('Read in villa occupancy data from file:%s', optiondict['occupy_filename'])
     villacal = load_villa_calendar( optiondict['occupy_filename'], optiondict['fldDate'], debug=debug )
 
+    # read in the villa starts informatoin
+    #logger.info('Read in villa occupancy data from file:%s', optiondict['occupy_filename'])
+    #villastarts = load_villa_calendar( optiondict['starts_filename'], optiondict['fldDate'], debug=debug )
+
+    # simple test - create a message if thermostats say we are occupied and stays says we should not be
+    if occupied and today_str not in villacal:
+        msgid = kvgmailsendsimple.gmail_send_simple_message(
+            optiondict['occupied_email_from'],
+            optiondict['occupied_email_to'],
+            optiondict['occupied_email_subject'],
+            optiondict['occupied_email_body'],
+            optiondict['scopes'],
+            optiondict['file_token_json'],
+            optiondict['file_credentials_json']
+        )
+        # log message
+        logger.info('Villa occupied when stays.txt says not: %s', msgid['id'])
+
+    
+    # set the hold on villa main if today is a start date and it is not already set
+    
     # check to see if we are in an occupied day
     if today_str in villacal and tomorrow_str in villacal:
         # today and tomorrow are villa days no action

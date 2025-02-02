@@ -73,7 +73,7 @@ optiondictconfig = {
         'description': 'defines the display level for print messages',
     },
     'xls_filename': {
-        'value': 'Attune_Estate_2024_Bookings.xlsx',
+        'value': 'Attune_Estate_2025_Bookings.xlsx',
         'description': 'defines the name of the BP xls filename',
     },
     'occupy_filename': {
@@ -173,6 +173,7 @@ OCC_TYPE_CONV = {
     'Rest - Renter': ['R', 1],
     'Res.-Owner': ['O', 1],
     'Res.-Renter': ['R', 1],
+    'VRBO/Repeat guest': ['R',1],
 
 }
 
