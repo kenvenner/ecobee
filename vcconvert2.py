@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.27
+@version:  1.28
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -23,9 +23,12 @@ import kvcsv
 
 import copy
 import os
+import shutil
 
 import datetime
 import sys
+
+import pool
 
 # for sorting a list of dicts
 from operator import itemgetter
@@ -59,7 +62,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.27',
+        'value': '1.28',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -76,9 +79,17 @@ optiondictconfig = {
         'value': 'Attune_Estate_2025_Bookings.xlsx',
         'description': 'defines the name of the BP xls filename',
     },
+    'occupy_alt_dir': {
+        'value': 'g:/My Drive/VillaRaspi/',
+        'description': 'defines the directory where we put a copy of occupy_filename',
+    },
     'occupy_filename': {
         'value': 'stays.txt',
         'description': 'defines the name of the file holding the villa occupancy',
+    },
+    'pool_heater_allowed_alt_dir': {
+        'value': 'g:/My Drive/VillaRaspi/pool_heater_allowed/',
+        'description': 'defines the directory where we put a copy of pool_heater_allowed_filename'
     },
     'pool_heater_allowed_filename': {
         'value': 'pool_heater_allowed.txt',
@@ -903,7 +914,7 @@ def load_convert_save_file(xlsfile,
 
 
     # create a file pointer to open this desired file
-    if pool_heater_allowed_dates:
+    if True or pool_heater_allowed_dates:
         # dump records out
         with open(pool_heater_allowed_filename, 'w') as phaf:
             # output each date in the MM/DD/YYYY format
@@ -993,7 +1004,16 @@ if __name__ == '__main__':
                                                           optiondict['pool_heater_allowed_filename'],
                                                           debug=optiondict['debug'])
 
-    
+    # if set copy the occupy_filename to the alternate directory
+    if optiondict['occupy_alt_dir']:
+        logger.info("copying  %s to %s", optiondict['occupy_filename'], optiondict['occupy_alt_dir'])
+        shutil.copy(optiondict['occupy_filename'], optiondict['occupy_alt_dir'])
+        
+    # if set copy the occupy_filename to the alternate directory
+    if optiondict['pool_heater_allowed_alt_dir']:
+        logger.info("copying  %s to %s", optiondict['pool_heater_allowed_filename'], optiondict['pool_heater_allowed_alt_dir'])
+        shutil.copy(optiondict['pool_heater_allowed_filename'], optiondict['pool_heater_allowed_alt_dir'])
+        
     # if the google calendar sync flag is set - sync
     if optiondict['calendarsync']:
         # determine the starting date for the run
@@ -1009,7 +1029,7 @@ if __name__ == '__main__':
         villacalendar.sync_villa_cal_with_bp_xls(xlsaref, now=now, debug=optiondict['debug'])
 
     # validate we can load this file after we created it
-    logger.info('Load newly created file looking for problems')
+    logger.info('Load newly created file looking for problems: %s', optiondict['occupy_filename'])
     try:
         villaecobee.load_villa_calendar(optiondict['occupy_filename'], optiondict['fldDate'], debug=False)
     except:
@@ -1019,3 +1039,61 @@ if __name__ == '__main__':
         # display message
         print("ERROR:unable to load the newly created file:see error in line above")
         print('Please correct file:', optiondict['occupy_filename'])
+
+    # validate that we can load the file after we created it
+    logger.info('Load newly created file looking for problems: %s', optiondict['pool_heater_allowed_filename'])
+    try:
+        pool.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'])
+    except:
+        # logging
+        logger.error('Error in newly created file:%s', optiondict['pool_heater_allowed_filename'])
+
+        # display message
+        print("ERROR:unable to load the newly created file:see error in line above")
+        print('Please correct file:', optiondict['pool_heater_allowed_filename'])
+    # validate we can load this file after we created it
+    logger.info('Load newly created file looking for problems: %s', optiondict['occupy_filename'])
+    try:
+        villaecobee.load_villa_calendar(optiondict['occupy_filename'], optiondict['fldDate'], debug=False)
+    except:
+        # logging
+        logger.error('Error in newly created file:%s', optiondict['occupy_filename'])
+
+        # display message
+        print("ERROR:unable to load the newly created file:see error in line above")
+        print('Please correct file:', optiondict['occupy_filename'])
+
+
+    # ALTERNATE LOCATION CHECKS
+    if optiondict['occupy_alt_dir']:
+        optiondict['occupy_filename'] = os.path.join(optiondict['occupy_alt_dir'], optiondict['occupy_filename'])
+        
+        # validate we can load this file after we created it
+        logger.info('Load newly created file looking for problems: %s', optiondict['occupy_filename'])
+        try:
+            villaecobee.load_villa_calendar(optiondict['occupy_filename'], optiondict['fldDate'], debug=False)
+        except:
+            # logging
+            logger.error('Error in newly created file:%s', optiondict['occupy_filename'])
+            
+            # display message
+            print("ERROR:unable to load the newly created file:see error in line above")
+            print('Please correct file:', optiondict['occupy_filename'])
+
+    
+    if optiondict['pool_heater_allowed_alt_dir']:
+        optiondict['pool_heater_allowed_filename'] = os.path.join(optiondict['pool_heater_allowed_alt_dir'], optiondict['pool_heater_allowed_filename'])
+        
+        # validate that we can load the file after we created it
+        logger.info('Load newly created file looking for problems: %s', optiondict['pool_heater_allowed_filename'])
+        try:
+            pool.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'])
+        except:
+            # logging
+            logger.error('Error in newly created file:%s', optiondict['pool_heater_allowed_filename'])
+            
+            # display message
+            print("ERROR:unable to load the newly created file:see error in line above")
+            print('Please correct file:', optiondict['pool_heater_allowed_filename'])
+
+# eof
