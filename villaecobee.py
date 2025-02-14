@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.16
+@version:  1.17
 
 Read data from ecobee thermostats, and store to file
 Read occupancy from flat file
@@ -49,7 +49,7 @@ logger = logging.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion' : {
-        'value': '1.16',
+        'value': '1.17',
         'description' : 'defines the version number for the app',
     },
     'debug' : {
@@ -101,7 +101,8 @@ optiondictconfig = {
         'description' : 'who sends out the email about thermo says occupied and stays.txt says it is not',
     },
     'occupied_email_to' : {
-        'value' : 'ken@vennerllc.com, mike.kmsdev2@outlook.com, reservations@michelleleighvacationrentals.com',
+        'value' : 'ken@vennerllc.com, mike.kmsdev2@outlook.com',
+#        'value' : 'ken@vennerllc.com, mike.kmsdev2@outlook.com, reservations@michelleleighvacationrentals.com',
 #        'value' : 'ken@vennerllc.com',  # uncomment for testing purposes
         'description' : 'defines the list of emails we notifiy when occupied and stays.txt say not',
     },
@@ -319,6 +320,18 @@ def set_temp_holds_all( ecobee, therms, holdSetting, hold_type, debug=False ):
             # display it.
             print('set_temp_holds_all:thermos:', thermo1,':holdName:', holdName1, ':holdCool:', holdCool1, ':holdHeat:', holdHeat1)
             
+
+# remove any temperature holds that exist on all thermostats
+#
+def turn_on_all_thermos( ecobee, debug=False ):
+    # read in the current set of thermostats - so we have a list to work
+    thermos=ecobee.get_thermostats()
+
+    # loop through the thermometers
+    for idx in range(len(thermos)):
+        # make sure the thermostat is not off
+        set_therm_to_auto_if_off( ecobee, idx, thermos, debug=debug )
+
 
 # set temperature holds on defined thermostat
 #
@@ -575,14 +588,18 @@ if __name__ == '__main__':
     elif today_str in villacal:
         # today but not tomorrow - check the time - late enough - set the hold
         logger.info('Villa vacated today:current_hour:%d:update_after:%d:temp holds set:%s', today_hour, optiondict['sethold_hour'], systemHoldOn)
-        if not systemHoldOn and today_hour > optiondict['sethold_hour']:
+        # 2025-02-14;kv removed the check for systemholdon and just force the update - dealing with the thermostats were turned off
+        #if not systemHoldOn and today_hour > optiondict['sethold_hour']:
+        if today_hour > optiondict['sethold_hour']:
             logger.info('Villa vacated:set temperature holds')
             set_temp_holds_all( ecobee, therms, holdSetting, optiondict['holdType'], debug=debug )
     elif tomorrow_str in villacal:
         # if tomorrow is a villa day and today is not, remove holds if the occupant is owner or renter
         logger.info('Villa occupied tomorrow:current_hour:%d:update_after:%d:temp holds set:%s', today_hour, optiondict['sethold_hour'], systemHoldOn)
         logger.info('Villa occupied tomorrow')
-        if systemHoldOn and today_hour > optiondict['sethold_hour']:
+        # 2025-02-14;kv removed the check for systemholdon and just force the update - dealing with the thermostats were turned off
+        #if systemHoldOn and today_hour > optiondict['sethold_hour']:
+        if today_hour > optiondict['sethold_hour']:
             # renter or owner - remove temp holds
             logger.info('Villa occupied tomorrow:remove holds')
             remove_temp_holds_all( ecobee, debug=debug )
