@@ -3,7 +3,7 @@ from __future__ import print_function
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.75
+@version:  1.85
 
 Library of tools used in general by KV
 '''
@@ -12,6 +12,7 @@ import glob
 import os
 import datetime
 import pprint
+import time
 
 # moved datetime processing to its own module
 import kvdate
@@ -23,7 +24,9 @@ import kvdate
 import sys
 import errno
 import json
-from distutils.util import strtobool
+# removed call 2024-01-02;kv - implemented this inside this function
+# from distutils.util import strtobool
+
 
 # setup the logger
 import logging
@@ -31,11 +34,30 @@ import logging
 logger = logging.getLogger(__name__)
 
 # set the module version number
-AppVersion = '1.75'
-__version__ = '1.75'
+AppVersion = '1.85'
+__version__ = '1.85'
 HELP_KEYS = ('help', 'helpall',)
 HELP_VALUE_TABLE = ('tbl', 'table', 'helptbl', 'fmt',)
 
+# 2024-01-02;kv implemented function locally as routine was deprecated
+def strtobool(val):
+    """Convert a string representation of truth to true (1) or false (0).
+
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
+    are 'n', 'no', 'f', 'false', 'off', and '0'.  Raises ValueError if
+    'val' is anything else.
+
+    reimplemented here becuase distutills.util.strbool was deprecated in 3.12
+
+    https://note.nkmk.me/en/python-bool-true-false-usage/
+    """
+    val = val.lower()
+    if val in ('y', 'yes', 't', 'true', 'on', '1'):
+        return 1
+    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+        return 0
+    else:
+        raise ValueError("invalid truth value {!r}".format(val))
 
 # import ast
 #   and call bool(ast.literal_eval(value)) 
@@ -399,6 +421,9 @@ def set_when_not_set(input_dict, key1, key2, value):
 
 # display the optiondictconfig information in human readable format
 def kv_parse_command_line_display(optiondictconfig, defaultoptions=None, optiondict=None, tblfmt=False, debug=False):
+    if type(optiondictconfig) != dict:
+        raise TypeError('optiondictconfig must be a dictionary')
+    
     if defaultoptions is None:
         defaultoptions = {}
     if optiondict is None:
@@ -517,6 +542,78 @@ def kv_parse_command_line_display(optiondictconfig, defaultoptions=None, optiond
                         print('  ' + fld + '.' * (12 - len(fld)) + ':', optiondictconfig[opt][fld])
 
 
+# utility used to remove a filename - in windows sometimes we have a delay
+# in releasing the filehandle - this routine will loop a few times giving
+# time for the OS to release the blocking issue and then delete
+#
+# optional input:
+#    calledfrom - string used to display - usually the name of module.function()
+#    debug - bool defines if we display duggging print statements
+#    maxretry - int - number of times we try to delete and then give up (default: 20)
+#
+def remove_filename(filename, calledfrom='', debug=False, maxretry=20):
+    logger.debug('Remove:%s:calledfrom:%s:maxretry:%d', filename, calledfrom, maxretry)
+    cnt = 0
+    if calledfrom:  calledfrom += ':'
+    while os.path.exists(filename):
+        cnt += 1
+        if debug: print(calledfrom, filename, ':exists:try to remove:cnt:', cnt)
+        logger.debug('%s:%s:exists:try to remove:cnt:%d', calledfrom, filename, cnt)
+        try:
+            os.remove(filename)  # try to remove it directly
+            logger.debug('%s:%s:removed on count:%d', calledfrom, filename, cnt)
+        except Exception as e:
+            if debug: print(calledfrom, 'errno:', e.errno, ':ENOENT:', errno.ENOENT)
+            logger.debug('%s:errno:%d:ENOENT:%d', calledfrom, e.errno, errno.ENOENT)
+            if e.errno == errno.ENOENT:  # file doesn't exist
+                return
+            if debug: print(calledfrom, filename, ':', str(e))
+            if cnt > maxretry:
+                if debug: print(calledfrom, filename, ':raise error - exceed maxretry attempts:', maxretry)
+                logger.error('%s:%s:exceeded maxretry attempts:%d:raise error', calledfrom, filename, maxretry)
+                raise e
+            time.sleep(1)
+        except WinError as f:
+            if debug: print('Catch WinError:', str(f))
+            logger.warning('Catch WinError:%s', str(f))
+
+
+# utility used to remove a folder - in windows sometimes we have a delay
+# in releasing the filehandle - this routine will loop a few times giving
+# time for the OS to release the blocking issue and then delete
+#
+# optional input:
+#    calledfrom - string used to display - usually the name of module.function()
+#    debug - bool defines if we display duggging print statements
+#    maxretry - int - number of times we try to delete and then give up (default: 20)
+#
+def remove_dir(dirname, calledfrom='', debug=False, maxretry=20):
+    cnt = 0
+    if calledfrom:  calledfrom += ':'
+    while os.path.exists(dirname):
+        cnt += 1
+        if debug: print(calledfrom, dirname, ':exists:try to remove:cnt:', cnt)
+        try:
+            os.rmdir(dirname)  # try to remove it directly
+        #        except OSError as e: # originally just checked for OSError - we now check for all exceptions`
+        except Exception as e:
+            if debug: print(calledfrom, 'errno:', e.errno, ':ENOENT:', errno.ENOENT)
+            logger.debug('%s:errno:%s:ENOENT:%s', calledfrom, e.errno, errno.ENOENT)
+            if e.errno == errno.ENOENT:  # file doesn't exist
+                return
+            if debug: print(calledfrom, dirname, ':', str(e))
+            logger.debug('%s:%s:%s', calledfrom, dirname, str(e))
+            if cnt > maxretry:
+                if debug: print(calledfrom, dirname, ':raise error - exceed maxretry attempts:', maxretry)
+                logger.error('%s:%s:maxretry attempts:%d', calledfrom, dirname, maxretry)
+                raise e
+        except WinError as f:
+            if debug: print('Catch WinError:', str(f))
+            logger.warning('Catch WinError:%s', str(f))
+
+def dir_remove(dirname, calledfrom='', debug=False, maxretry=20):
+    return remove_dir(dirname, calledfrom='', debug=False, maxretry=20)
+    
 # define the filename used to create log files
 # that are based on the "day" the program starts running
 # generally used for short running tools
@@ -703,7 +800,21 @@ def filename_proper(filename_full, file_dir=None, create_dir=False, write_check=
     # return the calculated filename
     return os.path.normpath(full_filename)
 
-
+# remove a filename
+def filename_remove(filename, calledfrom='', debug=False, maxretry=20):
+    return remove_filename(filename, calledfrom='', debug=False, maxretry=20)
+    
+# copy a filename to a new filename
+def filename_copy(src_filename, dst_filename):
+    # Check the operating system and use the respective command
+    if os.name == 'nt':  # Windows
+        cmd = f'copy "{src_filename}" "{dst_filename}"'
+    else:  # Unix/Linux
+        cmd = f'cp "{src_filename}" "{dst_filename}"'
+        
+    # Copy File
+    os.system(cmd)
+    
 # create a unique filename
 def filename_unique(filename=None, filename_href=None, debug=False):
     if filename_href is None:
@@ -752,8 +863,13 @@ def filename_unique(filename=None, filename_href=None, debug=False):
 
     # if filename is provided split it up
     if filename:
+        # if they provided a filename pick up those defaults
         default_options['file_path'], default_options['base_filename'], default_options['file_ext'] = filename_split(
             filename)
+        # but if we set them by passing them in set them back
+        for fld in ['file_path', 'base_filename', 'file_ext']:
+            if fld in filename_href:
+                default_options[fld] = filename_href[fld]
     else:
         # parse up the full_filename if passed in
         if default_options['full_filename']:
@@ -823,8 +939,9 @@ def filename_unique(filename=None, filename_href=None, debug=False):
         filename = default_options['filename']
 
     # debugging
-    # print('file_unique:filename:', filename)
-    # print('file_unique:default_options:', default_options)
+    if debug:
+        print('file_unique:filename:', filename)
+        print('file_unique:default_options:', default_options)
 
     # take action if we are not going to overwrite the filename
     if not default_options['overwrite']:
@@ -904,74 +1021,6 @@ def read_list_from_file_lines(filename, stripblank=False, trim=False, encoding=N
     # return the list of lines
     return filelist
 
-
-# utility used to remove a filename - in windows sometimes we have a delay
-# in releasing the filehandle - this routine will loop a few times giving
-# time for the OS to release the blocking issue and then delete
-#
-# optional input:
-#    calledfrom - string used to display - usually the name of module.function()
-#    debug - bool defines if we display duggging print statements
-#    maxretry - int - number of times we try to delete and then give up (default: 20)
-#
-def remove_filename(filename, calledfrom='', debug=False, maxretry=20):
-    logger.debug('Remove:%s:calledfrom:%s:maxretry:%d', filename, calledfrom, maxretry)
-    cnt = 0
-    if calledfrom:  calledfrom += ':'
-    while os.path.exists(filename):
-        cnt += 1
-        if debug: print(calledfrom, filename, ':exists:try to remove:cnt:', cnt)
-        logger.debug('%s:%s:exists:try to remove:cnt:%d', calledfrom, filename, cnt)
-        try:
-            os.remove(filename)  # try to remove it directly
-            logger.debug('%s:%s:removed on count:%d', calledfrom, filename, cnt)
-        except Exception as e:
-            if debug: print(calledfrom, 'errno:', e.errno, ':ENOENT:', errno.ENOENT)
-            logger.debug('%s:errno:%d:ENOENT:%d', calledfrom, e.errno, errno.ENOENT)
-            if e.errno == errno.ENOENT:  # file doesn't exist
-                return
-            if debug: print(calledfrom, filename, ':', str(e))
-            if cnt > maxretry:
-                if debug: print(calledfrom, filename, ':raise error - exceed maxretry attempts:', maxretry)
-                logger.error('%s:%s:exceeded maxretry attempts:%d:raise error', calledfrom, filename, maxretry)
-                raise e
-        except WinError as f:
-            if debug: print('Catch WinError:', str(f))
-            logger.warning('Catch WinError:%s', str(f))
-
-
-# utility used to remove a folder - in windows sometimes we have a delay
-# in releasing the filehandle - this routine will loop a few times giving
-# time for the OS to release the blocking issue and then delete
-#
-# optional input:
-#    calledfrom - string used to display - usually the name of module.function()
-#    debug - bool defines if we display duggging print statements
-#    maxretry - int - number of times we try to delete and then give up (default: 20)
-#
-def remove_dir(dirname, calledfrom='', debug=False, maxretry=20):
-    cnt = 0
-    if calledfrom:  calledfrom += ':'
-    while os.path.exists(dirname):
-        cnt += 1
-        if debug: print(calledfrom, dirname, ':exists:try to remove:cnt:', cnt)
-        try:
-            os.rmdir(dirname)  # try to remove it directly
-        #        except OSError as e: # originally just checked for OSError - we now check for all exceptions`
-        except Exception as e:
-            if debug: print(calledfrom, 'errno:', e.errno, ':ENOENT:', errno.ENOENT)
-            logger.debug('%s:errno:%s:ENOENT:%s', calledfrom, e.errno, errno.ENOENT)
-            if e.errno == errno.ENOENT:  # file doesn't exist
-                return
-            if debug: print(calledfrom, dirname, ':', str(e))
-            logger.debug('%s:%s:%s', calledfrom, dirname, str(e))
-            if cnt > maxretry:
-                if debug: print(calledfrom, dirname, ':raise error - exceed maxretry attempts:', maxretry)
-                logger.error('%s:%s:maxretry attempts:%d', calledfrom, dirname, maxretry)
-                raise e
-        except WinError as f:
-            if debug: print('Catch WinError:', str(f))
-            logger.warning('Catch WinError:%s', str(f))
 
 
 # return the function name of the function that called this
@@ -1250,6 +1299,8 @@ def create_multi_key_lookup(src_data, fldlist, copy_fields=None):
 # create a multi-key dictionary from a list of dictionaries
 def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
     '''
+    not sure this owrks for xcel
+
     Create a multi key dictionary that gets to the record based on the
     keys in the record
 
@@ -1313,10 +1364,12 @@ def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
     return src_lookup
 
 
-def copy_matched_data(dst_data, src_lookup, key_fields, copy_fields):
+def copy_matched_data_cnt(dst_data, src_lookup, key_fields, copy_fields):
     '''
     copy into dst_data from src_lookup, copy_fields when there is a match
     on key_fields
+
+    provide the ability to return the number of records that were actual updated
     '''
     # make sure we passed in a list
     if type(key_fields) is not list:
@@ -1343,6 +1396,7 @@ def copy_matched_data(dst_data, src_lookup, key_fields, copy_fields):
     #
     # capture the count of matched records
     matched_recs = 0
+    updated_recs = 0
     # step through the dst_data
     for rec in dst_data:
         # cpature if we have a match
@@ -1365,10 +1419,109 @@ def copy_matched_data(dst_data, src_lookup, key_fields, copy_fields):
         matched_recs += 1
         # we did match so copy over the fields
         # ptr should point at the record of interest from src_lookup
+        cols_updated = 0
         for cfld in copy_fields:
+            # they are not the same one one or both are populated
+            if ptr[cfld] != rec[cfld] and (ptr[cfld] or rec[cfld]):
+                # this column is populated and thus causing an update
+                cols_updated += 1
+                # debubging
+                # print('updt', cfld, rec[cfld], ptr[cfld])
+            # copy over the value from the src to the dst
             rec[cfld] = ptr[cfld]
+            # debugging
+            # print('chg.', cfld, rec[cfld], ptr[cfld])
+        # now increment updated count
+        if cols_updated:
+            updated_recs += 1
     # return the number of records that matched
+    return matched_recs, updated_recs
+
+def copy_matched_data(dst_data, src_lookup, key_fields, copy_fields):
+    '''
+    copy into dst_data from src_lookup, copy_fields when there is a match
+    on key_fields
+    '''
+    matched_recs, updated_recs = copy_matched_data_cnt(dst_data, src_lookup, key_fields, copy_fields)
+
     return matched_recs
+
+
+def diff_matched_data(dst_data, src_lookup, key_fields, diff_fields=None, exc_fields=None):
+    '''
+    diff matching reocrds in dst_data from src_lookup,
+    build output records that show where the value in dst_data does not
+    match the same column in src_lookup when there is a match
+    on key_fields.
+    if diff_fields is set - diff those columns
+    if diff_fields is None - then the columsn to diff are the columns
+    in dst_data less the key fields and less the exc_fields
+    '''
+    # capture the exc_fields
+    if exc_fields is None:
+        exc_fields = []
+    # make sure we passed in a list
+    if type(key_fields) is not list:
+        print('key_fields must be type - list - but is: ', type(key_fields))
+        raise TypeError()
+    # get the list of fields to compare
+    if diff_fields is not None:
+        # we passed in value - check to see if it is a list
+        if type(diff_fields) is not list:
+            print('diff_fields must be type - list - but is: ', type(diff_fields))
+            raise TypeError()
+    else:
+        # create the diff fields definition from dst_fields
+        diff_fields = [x for x in dst_data[0].keys() if x not in key_fields and x not in exc_fields]
+    # check that the key_fields keys are in the first record
+    for fld in key_fields:
+        if fld not in dst_data[0]:
+            print('ERROR:  Unable to find key_field field: ', fld)
+            print('in first record:')
+            pprint.pprint(dst_data[0])
+            print('This routine will fail')
+    #
+    # capture the count of matched records
+    diffs = []
+    matched_recs = 0
+    matched_recs_with_diff = 0
+    # step through the dst_data
+    for rec in dst_data:
+        # cpature if we have a match
+        matched = True
+        # build up the diff_rec as we build up the key
+        diff_rec = {}
+        # capture the pointer
+        ptr = src_lookup
+        # step through the key_fields and see if we find a matching record
+        for fld in key_fields:
+            # there is a match
+            if rec[fld] in ptr:
+                ptr = ptr[rec[fld]]
+                # build up the diff_rec
+                diff_rec[fld] = rec[fld]
+            else:
+                matched = False
+                # stop looking for match on this record
+                break
+        # check to see if we did match get next record
+        if not matched:
+            continue
+        # increment the matched out
+        matched_recs += 1
+        # we did match so copy over the fields
+        # ptr should point at the record of interest from src_lookup
+        for dfld in diff_fields:
+            # if the two columns are different create a record that shows the key and difference
+            if dfld in ptr and rec[dfld] != ptr[dfld]:
+                new_rec = diff_rec.copy()
+                new_rec['fld'] = dfld
+                new_rec['dst_value'] = rec[dfld]
+                new_rec['src_value'] = ptr[dfld]
+                diffs.append(new_rec)
+                
+    # return the number of records that matched
+    return diffs
 
 
 def extract_unmatched_data(src_data, dst_lookup, key_fields):

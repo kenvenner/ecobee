@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.08
+@version:  1.10
 
 Library of tools used in finding matches - used by kvcsv and kvxls
 """
@@ -12,16 +12,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 # global variables
-AppVersion = '1.08'
+AppVersion = '1.10'
 
 
 # this class is used to take a row and data and determine if it matches a minimal requirement
 
 # utility used to create a new consolidate key that is a multi-field key
 def build_multifield_key(rowdict, dictkeys, joinchar='|', debug=False):
+    # validate we passed in the required keys
     if not dictkeys:
-        logger.error('missing dictkeys')
-        raise
+        logger.debug('missing dictkeys')
+        raise Exception('dictkeys not provided')
     if debug:
         print('build_multifield_key:dictkeys:', dictkeys)
         print('build_multifield_key:rowdict:', rowdict)
@@ -33,17 +34,48 @@ def build_multifield_key(rowdict, dictkeys, joinchar='|', debug=False):
 
 
 # the warning message string for optiondict concerns
-def badoption_msg(func, val, val2):
-    return '%s:possible mistyped optiondict key [%s] could be [%s]' % (func, val, val2)
+def badoption_msg(func, val, val2, fixed=None):
+    if fixed is None:
+        return '%s:possible mistyped optiondict key [%s] could be [%s]' % (func, val, val2)
+    elif fixed:
+        return '%s:possible mistyped optiondict key [%s] could be [%s] - this was fixed' % (func, val, val2)
+    else:
+        return '%s:possible mistyped optiondict key [%s] could be [%s] - this was NOT fixed' % (func, val, val2)
 
 
 # the utility used to look at an optiondict and look for possibly bad keys passed in
-def badoptiondict_check(func, optiondict, badoptiondict, noshowwarning=False, dieonbadoption=False):
+def badoptiondict_check(func, optiondict, badoptiondict, noshowwarning=False, dieonbadoption=False, fix_missing=False):
+    '''
+    func - str tells us who called this - usercontrolled
+    optiondict - list of options to be inspected, warned, terminated or fixed
+    badoptiondict - known list of bad keyss mapped to the proper key
+    noshowwarning - when true we do not display print statements about issues 
+    dieonbadoption - when true - if we have a badoption key die 
+    fix_missing - when true fix this key if the proper key does ot already exist
+    '''
+    
     # check optiondict for unexpected/mistyped values and provide warnings
     warnings = []
+    if False:
+        print('optiondict')
+        print(optiondict)
+        print('badoptiondict')
+        print(badoptiondict)
+        print(dieonbadoption, noshowwarning, fix_missing)
     for val in badoptiondict:
+        # for each bad entry
         if val in optiondict:
-            warnings.append(badoption_msg(func, val, badoptiondict[val]))
+            # do we have it - we do
+            fixed=None
+            if fix_missing:
+                # if we fix it check to see if the right value is already set
+                fixed=False
+                if badoptiondict[val] not in optiondict:
+                    optiondict[badoptiondict[val]] = optiondict[val]
+                    fixed=True
+            # fixed or not create the warning
+            warnings.append(badoption_msg(func, val, badoptiondict[val], fixed=fixed))
+            # display directly is appropriate
             if not noshowwarning: print(warnings[-1])
 
     # check to see if we should raise an error if we find problems
@@ -56,8 +88,24 @@ def badoptiondict_check(func, optiondict, badoptiondict, noshowwarning=False, di
 
 # this is the object that is persistent and is used to find a matching record to the defined constraints of the __init__
 class MatchRow(object):
+    '''
+    req_cols - list of columns in the dictionary
+    xlat_dict - dict when populated, that changes the key of a column to a newkey
+    optiondict - setting vaues level 1
+    optiondict2 - setting values level 2 takes precidensce over level 1
+
+    option keys:
+    dieonbadoption - bool - when true - we will die if we receive invalid options
+    nocase - bool - if true - we check for key match case insensitive
+    max_rows - integer - max number of rows to check
+    unique_column - bool - if true - we must have unqiue columns in the final result
+    no_warnings - bool - when true - we do not display warnings but pass them back as an array
+    fix_missing - bool - when true - when a bad option is found we will attempt to fix them
+
+    '''
+
     # set up the parser with input information
-    def __init__(self, req_cols, xlatdict={}, optiondict={}):
+    def __init__(self, req_cols, xlatdict={}, optiondict={}, optiondict2={}, debug=False):
         # validate input types
         if req_cols and not isinstance(req_cols, list):
             raise Exception(u'req_cols must be a list: {}'.format(req_cols))
@@ -65,6 +113,8 @@ class MatchRow(object):
             raise Exception(u'xlatdict must be a dict: {}'.format(req_cols))
         if optiondict and not isinstance(optiondict, dict):
             raise Exception(u'optiondict must be a dict: {}'.format(req_cols))
+        if optiondict2 and not isinstance(optiondict2, dict):
+            raise Exception(u'optiondict2 must be a dict: {}'.format(req_cols))
 
         # setup variables
         self._req_cols = req_cols[:]  # make sure we have a copy of this so it does not get changed on us
@@ -91,38 +141,70 @@ class MatchRow(object):
         # optiondict values passed in
         self.nocase = False  # if true - we check for key match case insensitive
         self.unique_column = False  # if true - we must have unqiue columns in the final result
-        self.maxrows = 10  # max number of rows to check
+        self.max_rows = 10  # max number of rows to check
         self.no_warnings = False  # if true - we supress sending out warning message
         self.dieonbadoption = False  # if true - we raise error on bad options
+        self.fix_missing = False # if true - we fix, if None display no msg
+
 
         # create the list of misconfigured solutions
         badoptiondict = {
+            'diebadoption': 'dieonbadoption',
+            'die_badoption': 'dieonbadoption',
+            'die_onbadoption': 'dieonbadoption',
             'no_case': 'nocase',
-            'max_row': 'maxrows',
-            'max_rows': 'maxrows',
+            'maxrow': 'max_rows',
+            'maxrows': 'max_rows',
+            'max_row': 'max_rows',
             'uniquecolumn': 'unique_column',
             'uniquecolumns': 'unique_column',
             'unique_columns': 'unique_column',
             'nowarning': 'no_warnings',
             'nowarnings': 'no_warnings',
             'no_warning': 'no_warnings',
+            'noshowwarning': 'no_warnings',
+            'noshowwarnings': 'no_warnings',
+            'fixmissing': 'fix_missing',
         }
 
+        optiondict3 = {}
+        for fld in ['nocase','unique_column','max_rows','no_warnings','dieonbadoption','fix_missing']:
+            if fld in optiondict2:
+                optiondict3[fld] = optiondict2[fld]
+            elif fld in optiondict:
+                optiondict3[fld] = optiondict[fld]
+        # values from badoptiondict
+        for fld, v in badoptiondict.items():
+            if v not in optiondict3 and fld in optiondict2:
+                optiondict3[v] = optiondict2[fld]
+            elif v not in optiondict3 and fld in optiondict:
+                optiondict3[v] = optiondict[fld]
+
+
+        # debugging
+        if debug:
+            print('kvmatch.MatchRow:init:optiondict3:')
+            for k,v in optiondict3.items():
+                print(k,v)
+
+
         # update flag/setting if options is set
-        if 'nocase' in optiondict:
-            self.nocase = optiondict['nocase']
-        if 'unique_column' in optiondict:
-            self.unique_column = optiondict['unique_column']
-        if 'maxrows' in optiondict:
-            self.maxrows = optiondict['maxrows']
-        if 'no_warnings' in optiondict:
-            self.no_warnings = optiondict['no_warnings']
-        if 'dieonbadoption' in optiondict:
-            self.dieonbadoption = optiondict['dieonbadoption']
+        if 'nocase' in optiondict3:
+            self.nocase = optiondict3['nocase']
+        if 'unique_column' in optiondict3:
+            self.unique_column = optiondict3['unique_column']
+        if 'max_rows' in optiondict3:
+            self.max_rows = optiondict3['max_rows']
+        if 'no_warnings' in optiondict3:
+            self.no_warnings = optiondict3['no_warnings']
+        if 'dieonbadoption' in optiondict3:
+            self.dieonbadoption = optiondict3['dieonbadoption']
+        if 'fix_missing' in optiondict3:
+            self.fix_missing = optiondict3['fix_missing']
 
         # check what got passed in
         self.warning_msg = badoptiondict_check('kvmatch:MatchRow:__init__', optiondict, badoptiondict, self.no_warnings,
-                                               self.dieonbadoption)
+                                               self.dieonbadoption, self.fix_missing)
 
         # copy over the translations dictionary and add values if required
         for key in xlatdict:
@@ -241,7 +323,7 @@ class MatchRow(object):
             print('req_cols:', self._req_cols)
             print('data:', data)
             print('rowcount:', self.rowcount)
-            print('maxrows:', self.maxrows)
+            print('max_rows:', self.max_rows)
             print('nocase:', self.nocase)
 
         logger.debug('xlatdict:%s', self._xlatdict)
@@ -251,12 +333,12 @@ class MatchRow(object):
         logger.debug('nocase:%s', self.nocase)
 
         # some upfront tests
-        if self.rowcount > self.maxrows:
-            if debug:  print('rowcount > maxrows - set variables and return None')
-            logger.debug('rowcount > maxrows - set variables and return None')
+        if self.rowcount > self.max_rows:
+            if debug:  print('rowcount > max_rows - set variables and return None')
+            logger.debug('rowcount > max_rows - set variables and return None')
             self.search_failed = True
             self.search_exceeded = True
-            self.error_msg = 'Max search row count [%s] exceeded at row [%s]' % (self.maxrows, self.rowcount)
+            self.error_msg = 'Max search row count [%s] exceeded at row [%s]' % (self.max_rows, self.rowcount)
             return None
 
         # initialize what we need to match on
@@ -350,5 +432,13 @@ class MatchRow(object):
 
             # return true
             return True
+        elif self.rowcount == self.max_rows:
+            if debug:  print('rowcount == max_rows - match not found, set variables and return None')
+            logger.debug('rowcount == max_rows - match not found, set variables and return None')
+            self.search_failed = True
+            self.search_exceeded = True
+            self.error_msg = 'Max search row count [%s] exceeded at row [%s] - no match found' % (self.max_rows, self.rowcount)
+            return False
+
 
 # eof

@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.11
+@version:  1.12
 
 Library of tools used to read and write CSV files
 '''
@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # version number
-AppVersion = '1.11'
+AppVersion = '1.12'
 
 
 # determine the max keys across a list of dictionaries
@@ -31,8 +31,14 @@ def max_column_list(csvlist):
 # write out a list of dicts => record into a CSV
 # based on one or more key fields
 # assumes the first line of the CSV file is the header/defintion of the CSV
-def writelist2csv(csvfile, csvlist, csvfields=None, mode='w', header=True, encoding='windows-1252', maxcolumns=False,
+def writelist2csv(csvfile, csvlist, csvfields=None, mode='w', header=True, encoding='windows-1252', maxcolumns=False, col_aref=None,
                   debug=False):
+
+    # check to see if we passed in col_ref
+    if col_aref and not csvfields:
+        # and we set the fields we wanted to output
+        csvfields=col_aref
+        
     # get the keys from the dictionary keys in the first value itself
     if not csvfields:
         csvfields = list(csvlist[0].keys())
@@ -50,8 +56,14 @@ def writelist2csv(csvfile, csvlist, csvfields=None, mode='w', header=True, encod
 # write out a dict that is keyed => record into a CSV
 # based on one or more key fields
 # assumes the first line of the CSV file is the header/defintion of the CSV
-def writedict2csv(csvfile, csvdict, csvfields=None, mode='w', header=True, encoding='windows-1252', maxcolumns=False,
+def writedict2csv(csvfile, csvdict, csvfields=None, mode='w', header=True, encoding='windows-1252', maxcolumns=False, col_aref=None,
                   debug=False):
+
+    # check to see if we passed in col_ref
+    if col_aref and not csvfields:
+        # and we set the fields we wanted to output
+        csvfields=col_aref
+        
     # get the keys from the dictionary keys in the first value itself
     if not csvfields:
         csvfields = list(csvdict[list(csvdict.keys())[0]].keys())

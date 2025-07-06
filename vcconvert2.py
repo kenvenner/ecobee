@@ -662,8 +662,10 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
     new_fname = fname + '.bak'
     if os.path.exists(new_fname):
         os.remove(new_fname)
-    os.rename(xlsfile, new_fname)
-
+    #os.rename(xlsfile, new_fname)
+    cmd = f'copy "{xlsfile}" "{new_fname}"'
+    os.system(cmd)
+    
     # find records where first date and number of nights are filled in
     # sort these records so they are in date order
     xlsaref = filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights)
