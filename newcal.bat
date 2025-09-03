@@ -1,4 +1,4 @@
-copy ..\poolcontrol\pool.py .
+rem copy ..\poolcontrol\pool.py .
 call kv-activate
 del vcconvert2.log
 @echo on

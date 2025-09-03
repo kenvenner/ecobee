@@ -29,6 +29,7 @@ import datetime
 import sys
 
 import pool
+import poolfile
 
 # for sorting a list of dicts
 from operator import itemgetter
@@ -175,6 +176,7 @@ OCC_TYPE_CONV = {
     'Owners Hold - Scribner': ['O', 1],
     'Owners Hold': ['O', 1],
     'Owners Hold- Venner': ['O', 1],
+    'Res - Auteur': ['O', 1],
     'Res - Owner': ['O', 1],
     'Res - Renter': ['R', 1],
     'Res- Renter': ['R', 1],
@@ -1045,7 +1047,7 @@ if __name__ == '__main__':
     # validate that we can load the file after we created it
     logger.info('Load newly created file looking for problems: %s', optiondict['pool_heater_allowed_filename'])
     try:
-        pool.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'])
+        poolfile.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'], logger)
     except:
         # logging
         logger.error('Error in newly created file:%s', optiondict['pool_heater_allowed_filename'])
@@ -1089,10 +1091,11 @@ if __name__ == '__main__':
         # validate that we can load the file after we created it
         logger.info('Load newly created file looking for problems: %s', optiondict['pool_heater_allowed_filename'])
         try:
-            pool.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'])
-        except:
+            poolfile.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'], logger)
+        except Exception as e:
             # logging
             logger.error('Error in newly created file:%s', optiondict['pool_heater_allowed_filename'])
+            logger.error('Error msg: %s', e)
             
             # display message
             print("ERROR:unable to load the newly created file:see error in line above")

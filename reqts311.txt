@@ -12,4 +12,4 @@ XlsxWriter
 xlutils
 xlwt
 matplotlib
-numpy
+
