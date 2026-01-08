@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.28
+@version:  1.29
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -63,7 +63,7 @@ logger=kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     'AppVersion': {
-        'value': '1.28',
+        'value': '1.29',
         'description': 'defines the version number for the app',
     },
     'debug': {
@@ -77,7 +77,7 @@ optiondictconfig = {
         'description': 'defines the display level for print messages',
     },
     'xls_filename': {
-        'value': 'Attune_Estate_2025_Bookings.xlsx',
+        'value': 'Attune_Estate_2026_Bookings.xlsx',
         'description': 'defines the name of the BP xls filename',
     },
     'occupy_alt_dir': {

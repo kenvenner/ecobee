@@ -1,7 +1,7 @@
 '''
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.12
+@version:  1.13
 
 Library of tools used to read and write CSV files
 '''
@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # version number
-AppVersion = '1.12'
+AppVersion = '1.13'
 
 
 # determine the max keys across a list of dictionaries
@@ -306,7 +306,7 @@ def readcsv2list_findheader(csvfile, req_cols, xlatdict={}, optiondict={}, col_a
         # user said we are not to look for the header in this file
         # we need to subtract 1 here because we are going to increment PAST the header
         # in the next section - so if there is no header - we need to start at zero ( -1 + 1 later)
-        row_header = start_row - 1
+        # row_header = start_row - 1
 
         # if no col_aref - then we must force this to aref_result
         if not col_aref:
@@ -321,7 +321,7 @@ def readcsv2list_findheader(csvfile, req_cols, xlatdict={}, optiondict={}, col_a
     elif col_header:
         # extract the header as the first line in the file
         header = reader.__next__()
-        row_header = 0
+        # row_header = 0
         if debug: print('col_header:header_1strow:', header)
         logger.debug('col_header:header_1strow:%s', header)
     else:
@@ -351,7 +351,7 @@ def readcsv2list_findheader(csvfile, req_cols, xlatdict={}, optiondict={}, col_a
             if p.matchRowList(rowdata, debug=debug) or p.search_exceeded:
                 # determine if we found the header
                 # set the row_header
-                row_header = row
+                # row_header = row
                 # found the header grab the output
                 header = p._data_mapped
                 # debugging
