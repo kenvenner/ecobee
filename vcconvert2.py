@@ -268,38 +268,42 @@ def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldTyp
         for fld in (fldFirstNight, fldLastNight):
             if not isinstance(rec[fld], datetime.datetime):
                 date_error = True
-                errors.append('Field [{}] not of type datetime: {}'.format(fld,
-                                                                         {'recidx': recidx,
-                                                                          'type': type(rec[fldFirstNight]),
-                                                                          'rec': rec}))
+                errors.append('Field [{}] not of type datetime - row [{}]:\n{}\n'.format(fld,
+                                                                                    rec[kvxls.FLD_XLSROW_ABS],
+                                                                                    {'recidx': recidx,
+                                                                                     'type': type(rec[fldFirstNight]),
+                                                                                     'rec': rec}))
 
         # if no errors - make sure the difference matches the set in XLSX
         if not date_error:
             dt_diff = rec[fldLastNight] - rec[fldFirstNight]
             num_nights = int(rec[fldNights])
             if dt_diff.days != num_nights:
-                errors.append('Field [{}] not calc as date difference: {}'.format(fld,
-                                                                                {'recidx': recidx,
-                                                                                 'dt_diff': dt_diff.days,
-                                                                                 'num_nights': num_nights,
-                                                                                 'rec': rec}))
-
+                errors.append('Field [{}] not calc as date difference - row [{}]:\n{}\n'.format(fld,
+                                                                                           rec[kvxls.FLD_XLSROW_ABS],
+                                                                                           {'recidx': recidx,
+                                                                                            'dt_diff': dt_diff.days,
+                                                                                            'num_nights': num_nights,
+                                                                                            'rec': rec}))
+                
         # check the record / reservation type
         if rec[fldType] not in OCC_TYPE_CONV:
-            errors.append('Field [{}] not in OCC_TYPE_CONV: {}'.format(fldType,
-                                                                     {'recidx': recidx,
-                                                                      'rec_fldtype': rec[fldType],
-                                                                      'rec': rec,
-                                                                      'OCC_TYPE_CONV': OCC_TYPE_CONV }))
-        # check for unique booking
+            errors.append('Field [{}] not in OCC_TYPE_CONV - row [{}]:\n{}\n'.format(fldType,
+                                                                                rec[kvxls.FLD_XLSROW_ABS],
+                                                                                {'recidx': recidx,
+                                                                                 'rec_fldtype': rec[fldType],
+                                                                                 'rec': rec,
+                                                                                 'OCC_TYPE_CONV': OCC_TYPE_CONV }))
+            # check for unique booking
         if rec[BOOKING_FLD] is None:
             continue
         elif rec[BOOKING_FLD] in booking:
-            errors.append('Field [{}] booking already exists: {}'.format(fldType,
-                                                                       {'recidx': recidx,
-                                                                        'orig_recidx': booking[rec[BOOKING_FLD]]['recidx'],
-                                                                        'booking': rec[BOOKING_FLD],
-                                                                        'rec': rec}))
+            errors.append('Field [{}] booking already exists - row [{}]:\n{}\n'.format(fldType,
+                                                                                  rec[kvxls.FLD_XLSROW_ABS],
+                                                                                  {'recidx': recidx,
+                                                                                   'orig_recidx': booking[rec[BOOKING_FLD]]['recidx'],
+                                                                                   'booking': rec[BOOKING_FLD],
+                                                                                   'rec': rec}))
         else:
             booking[rec[BOOKING_FLD]]=copy.deepcopy(rec)
             booking[rec[BOOKING_FLD]]['recidx']=recidx
@@ -804,7 +808,7 @@ def load_convert_save_file(xlsfile,
 
     # read in the XLS
     xlsaref = kvxls.readxls2list_findheader(xlsfile, req_cols=req_cols,
-                                            optiondict={'dateflds': xlsdateflds, 'sheetname': 'Listing'}, debug=False)
+                                            optiondict={'dateflds': xlsdateflds, 'sheetname': 'Listing', 'save_row_abs': True}, debug=False)
 
     # debugging
     if debug:

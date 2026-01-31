@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.11
+@version:  1.12
 
 Library of tools used in finding matches - used by kvcsv and kvxls
 """
@@ -12,13 +12,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 # global variables
-AppVersion = '1.11'
+AppVersion = '1.12'
 
 
 # this class is used to take a row and data and determine if it matches a minimal requirement
 
 # utility used to create a new consolidate key that is a multi-field key
-def build_multifield_key(rowdict, dictkeys, joinchar='|', debug=False):
+def build_multifield_key(rowdict: dict, dictkeys: list[str] | str, joinchar: str='|', debug: bool=False) -> str:
     # validate we passed in the required keys
     if not dictkeys:
         logger.debug('missing dictkeys')
@@ -34,7 +34,7 @@ def build_multifield_key(rowdict, dictkeys, joinchar='|', debug=False):
 
 
 # the warning message string for optiondict concerns
-def badoption_msg(func, val, val2, fixed=None):
+def badoption_msg(func: str, val, val2, fixed=None):
     if fixed is None:
         return '%s:possible mistyped optiondict key [%s] could be [%s]' % (func, val, val2)
     elif fixed:
@@ -44,15 +44,15 @@ def badoption_msg(func, val, val2, fixed=None):
 
 
 # the utility used to look at an optiondict and look for possibly bad keys passed in
-def badoptiondict_check(func, optiondict, badoptiondict, noshowwarning=False, dieonbadoption=False, fix_missing=False):
-    '''
+def badoptiondict_check(func: str, optiondict: dict, badoptiondict: dict, noshowwarning: bool=False, dieonbadoption: bool=False, fix_missing: bool=False) -> list[str]:
+    """
     func - str tells us who called this - usercontrolled
     optiondict - list of options to be inspected, warned, terminated or fixed
     badoptiondict - known list of bad keyss mapped to the proper key
-    noshowwarning - when true we do not display print statements about issues 
-    dieonbadoption - when true - if we have a badoption key die 
+    noshowwarning - when true we do not display print statements about issues
+    dieonbadoption - when true - if we have a badoption key die
     fix_missing - when true fix this key if the proper key does ot already exist
-    '''
+    """
     
     # check optiondict for unexpected/mistyped values and provide warnings
     warnings = []
@@ -88,7 +88,7 @@ def badoptiondict_check(func, optiondict, badoptiondict, noshowwarning=False, di
 
 # this is the object that is persistent and is used to find a matching record to the defined constraints of the __init__
 class MatchRow(object):
-    '''
+    """
     req_cols - list of columns in the dictionary
     xlat_dict - dict when populated, that changes the key of a column to a newkey
     optiondict - setting vaues level 1
@@ -102,18 +102,24 @@ class MatchRow(object):
     no_warnings - bool - when true - we do not display warnings but pass them back as an array
     fix_missing - bool - when true - when a bad option is found we will attempt to fix them
 
-    '''
+    """
 
     # set up the parser with input information
-    def __init__(self, req_cols, xlatdict={}, optiondict={}, optiondict2={}, debug=False):
+    def __init__(self, req_cols: list[str], xlatdict: dict | None=None, optiondict: dict | None=None, optiondict2: dict | None=None, debug: bool=False):
         # validate input types
         if req_cols and not isinstance(req_cols, list):
             raise Exception(u'req_cols must be a list: {}'.format(req_cols))
-        if xlatdict and not isinstance(xlatdict, dict):
+        if xlatdict is None:
+            xlatdict = {}
+        elif not isinstance(xlatdict, dict):
             raise Exception(u'xlatdict must be a dict: {}'.format(req_cols))
-        if optiondict and not isinstance(optiondict, dict):
+        if optiondict is None:
+            optiondict = {}
+        elif not isinstance(optiondict, dict):
             raise Exception(u'optiondict must be a dict: {}'.format(req_cols))
-        if optiondict2 and not isinstance(optiondict2, dict):
+        if optiondict2 is None:
+            optiondict2 = {}
+        elif not isinstance(optiondict2, dict):
             raise Exception(u'optiondict2 must be a dict: {}'.format(req_cols))
 
         # setup variables
@@ -146,6 +152,11 @@ class MatchRow(object):
         self.dieonbadoption = False  # if true - we raise error on bad options
         self.fix_missing = False # if true - we fix, if None display no msg
 
+        # variables
+        self._data = []
+        self._data_mapped = []
+        self.search_failed = False
+        self.search_exceed = False
 
         # create the list of misconfigured solutions
         badoptiondict = {
@@ -218,12 +229,12 @@ class MatchRow(object):
                 self._xlatdict[key] = xlatdict[key]
 
     # lower max_row by number of records if it is less than current max_row
-    def lower_max_row_by_reccount(self, reccount):
+    def lower_max_row_by_reccount(self, reccount: int) -> None:
         if reccount < self.max_rows:
             self.max_rows = reccount
             
     # clear values to prep for a new run through the data
-    def reset(self):
+    def reset(self) -> None:
         self.setupForMatch()
         self._near_match_count = {}
 
@@ -235,7 +246,7 @@ class MatchRow(object):
         self.error_msg = ''
 
     # clear values to support a new run to look for a match
-    def setupForMatch(self):
+    def setupForMatch(self) -> None:
         self._header_row = []
         self._match_columns = 0
         self._match_count = {}
@@ -246,7 +257,7 @@ class MatchRow(object):
                 self._match_count[col] = 0
 
     # this routine takes data and create the remapped list
-    def remappedRow(self, data, debug=False):
+    def remappedRow(self, data, debug=False) -> list[dict]:
         blankfmt = 'blank%03d'
         blankcount = 1
 
@@ -291,7 +302,7 @@ class MatchRow(object):
         return remapped
 
     # validate the data is unique values - if not pass back the values that are duplicated
-    def _unique_values(self, data, debug=False):
+    def _unique_values(self, data: list, debug: bool=False) -> list:
         # dictionary to count number of times we have seen a value
         seen_val = {}
         # capture values that have duplicates
@@ -318,7 +329,7 @@ class MatchRow(object):
         return duplicate_val
 
     # pass back True if this row matches the requirements
-    def matchRowList(self, data, debug=False):
+    def matchRowList(self, data: list, debug: bool=False) -> bool | None:
         # increment the row counter
         self.rowcount += 1
 

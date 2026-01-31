@@ -1,10 +1,10 @@
-'''
+"""
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.96
+@version:  1.98
 
 Library of tools used in general by KV
-'''
+"""
 
 from __future__ import print_function
 
@@ -36,13 +36,13 @@ debug_file= False
 logger = logging.getLogger(__name__)
 
 # set the module version number
-AppVersion = '1.96'
-__version__ = '1.96'
+AppVersion = '1.98'
+__version__ = '1.98'
 HELP_KEYS = ('help', 'helpall',)
 HELP_VALUE_TABLE = ('tbl', 'table', 'helptbl', 'fmt',)
 
 # 2024-01-02;kv implemented function locally as routine was deprecated
-def strtobool(val):
+def strtobool(val: str) -> bool | int:
     """Convert a string representation of truth to true (1) or false (0).
 
     True values are 'y', 'yes', 't', 'true', 'on', and '1'; false values
@@ -53,6 +53,10 @@ def strtobool(val):
 
     https://note.nkmk.me/en/python-bool-true-false-usage/
     """
+    # if we are not dealing with a string - we have no work to do here
+    if type(val) != str:
+        return val
+    # convert this string to it boolean equivalent
     val = val.lower()
     if val in ('y', 'yes', 't', 'true', 'on', '1'):
         return 1
@@ -116,7 +120,7 @@ def strtobool(val):
 #
 #  if <value> in list ('tbl','table','helptbl','fmt'), then the output is mark down table
 #
-def kv_parse_command_line(optiondictconfig, raise_error=False, keymapdict=None, cmdlineargs=None, skipcmdlineargs=False, disp_msg=True, debug=False):
+def kv_parse_command_line(optiondictconfig: dict, raise_error: bool=False, keymapdict: dict | None=None, cmdlineargs: list | None=None, skipcmdlineargs: bool=False, disp_msg: bool=False, debug: bool=False) -> dict:
     # set the value when not set
     if not cmdlineargs:
         cmdlineargs = {}
@@ -202,13 +206,19 @@ def kv_parse_command_line(optiondictconfig, raise_error=False, keymapdict=None, 
             'value': None,
             'description': 'defines the name of the log file',
         },
+        'all': {
+            'type': 'bool',
+        },
+        'notall': {
+            'type': 'bool',
+        },
     }
 
     # create the dictionary - and populate values from configuration passed in
     optiondict = {}
     for key in optiondictconfig:
         if 'value' in optiondictconfig[key]:
-            # the user specified a value value
+            # the user specified a value
             optiondict[key] = optiondictconfig[key]['value']
             # debugging
             logger.debug('Assigning [%s] value from optiondictconfig:%s', key, optiondict[key])
@@ -303,6 +313,79 @@ def kv_parse_command_line(optiondictconfig, raise_error=False, keymapdict=None, 
             # no files read in - remove from here also
             del cmdlineargs['conf_json']
 
+    # we have optiondictconfig, confargs, and cmdlineargs as the three ways we get values
+    # lets look for "all" and "notall" in the backwards sequence and set the value
+    all_notall = {
+        'all': False,
+        'notall': False,
+    }
+    setat = None
+    if disp_msg:
+        print('cmdlineargs:', cmdlineargs)
+        print('confargs:', confargs)
+        print('optiondictconfig:', optiondictconfig)
+    for idx, cfg in enumerate([cmdlineargs, confargs, optiondictconfig]):
+        for val in all_notall.keys():
+            if disp_msg:
+                print('val:', val, 'idx:', idx, 'cfg:', cfg)
+            # if the object is set and set true here - we capture that
+            if val in cfg and cfg[val]:
+                if disp_msg:
+                    print('found: ', val, ' in ', idx)
+                # struture is different for first two dicts and last dict
+                if idx<2 or ('value' in cfg[val] and cfg[val]['value']):
+                    all_notall[val] = cfg[val] if idx<2 else cfg[val]['value']
+                    # make sure we are getting out a boolean value
+                    all_notall[val] = bool(strtobool(all_notall[val]))
+                    setat = idx
+                    if disp_msg:
+                        print('really found it at: ', idx)
+        # test to see if we setat - if we did we are done
+        if setat is not None:
+            if disp_msg:
+                print('break here')
+            break
+    # debugging display
+    if disp_msg:
+        print('all_notall:', all_notall)
+        print('setat:', setat)
+        print('setat is not none:',  setat is not None )
+        print('is something set: ', (all_notall['all'] or all_notall['notall']))
+    # test to see if we set both at this level
+    if all_notall['all'] and all_notall['notall']:
+        raise ValueError('cannot set both [all] and [notall] to true - terminating')
+    # only take action if we set an action to take (one of them must be true)
+    if setat is not None and (all_notall['all'] or all_notall['notall']):
+        # display if asked
+        if disp_msg:
+            logger.info('all/notall set at level:%s', setat)
+        # calculate the values to be skipped
+        skipped_keys = [x for x, v in  defaultdictconfig.items() if v.get('type') == 'bool']
+        if disp_msg:
+            print('skipped_keys:', skipped_keys)
+        # we have them set, so now go through all booleans that are not configured as 'notall' and set them appropriately
+        for k, v in optiondictconfig.items():
+            # skip the settings that are not changed - pull in all the bool from defaultdictconfig
+            if k in skipped_keys:
+                continue
+            # looking at the optiondictconfig settings if the values of this setting are:
+            # 1) type is bool and
+            # 2) we have not set the 'notall' flag on and
+            # the value of optiondict is not None right now
+            # then change the vlaue of this setting to match the all/notall setting
+            if v.get('type') == 'bool' and not v.get('notall', False) and optiondict[k] is not None:
+                if disp_msg:
+                    print('setting the option based on flag: ', k)
+                if all_notall['all']:
+                    optiondict[k] = True
+                elif  all_notall['notall']:
+                    optiondict[k] = False
+    elif disp_msg:
+        print('no changes implement - no flag set')
+
+
+                
+        
     # now that we have loaded and flattened out all file based settings
     # move these settings to the final proper destination
     for key, value in confargs.items():
@@ -444,7 +527,7 @@ def kv_parse_command_line(optiondictconfig, raise_error=False, keymapdict=None, 
     # all processing ONLY runs when all is in option dict, and it is enabled
     # and there is at least one entry in optiondictconfig that as an 'notall' attribute and it is tru
     # other wise we assume processing is done outside of this routine
-    if 'all' in optiondict and optiondict['all']:
+    if False and 'all' in optiondict and optiondict['all']:
         anysetnotall = [k for k, v in optiondictconfig.items() if 'notall' in v and v['notall']]
         if anysetnotall:
             for k, v in optiondictconfig.items():
@@ -476,7 +559,7 @@ def kv_parse_command_line(optiondictconfig, raise_error=False, keymapdict=None, 
 
 
 # update the value of a two level deep key if it is not already set
-def set_when_not_set(input_dict, key1, key2, value):
+def set_when_not_set(input_dict: dict, key1, key2, value) -> bool:
     if key1 in input_dict:
         if key2 not in input_dict[key1]:
             input_dict[key1][key2] = value
@@ -485,10 +568,11 @@ def set_when_not_set(input_dict, key1, key2, value):
 
 
 # display the optiondictconfig information in human readable format
-def kv_parse_command_line_display(optiondictconfig, defaultoptions=None, optiondict=None, tblfmt=False, debug=False):
+def kv_parse_command_line_display(optiondictconfig: dict, defaultoptions: dict | None=None, optiondict: dict | None=None, tblfmt: bool=False, debug: bool=False) -> None:
     if type(optiondictconfig) is not dict:
         raise TypeError('optiondictconfig must be a dictionary')
-    
+
+    # if not set - make them the right type
     if defaultoptions is None:
         defaultoptions = {}
     if optiondict is None:
@@ -616,7 +700,7 @@ def kv_parse_command_line_display(optiondictconfig, defaultoptions=None, optiond
 #    debug - bool defines if we display duggging print statements
 #    maxretry - int - number of times we try to delete and then give up (default: 20)
 #
-def remove_filename(filename, calledfrom='', debug=False, maxretry=20, disp_msg=True):
+def remove_filename(filename: str, calledfrom: str='', debug: bool=False, maxretry: int=20, disp_msg: bool=True) -> str | None:
     logger.debug('Remove:%s:calledfrom:%s:maxretry:%d', filename, calledfrom, maxretry)
     cnt = 0
     if calledfrom:  calledfrom += ':'
@@ -630,12 +714,20 @@ def remove_filename(filename, calledfrom='', debug=False, maxretry=20, disp_msg=
             if disp_msg:
                 logger.debug('%s:%s:removed on count:%d', calledfrom, filename, cnt)
         #        except OSError as e: # originally just checked for OSError - we now check for all exceptions`
-        except Exception as e:
+        except OSError as e:
             if debug: print(calledfrom, 'errno:', e.errno, ':ENOENT:', errno.ENOENT)
             if disp_msg:
                 logger.debug('%s:errno:%d:ENOENT:%d', calledfrom, e.errno, errno.ENOENT)
             if e.errno == errno.ENOENT:  # file doesn't exist
                 return
+            if debug: print(calledfrom, filename, ':', str(e))
+            if cnt > maxretry:
+                if debug: print(calledfrom, filename, ':raise error - exceed maxretry attempts:', maxretry)
+                if disp_msg:
+                    logger.error('%s:%s:exceeded maxretry attempts:%d:raise error', calledfrom, filename, maxretry)
+                raise e
+            time.sleep(1)
+        except Exception as e:
             if debug: print(calledfrom, filename, ':', str(e))
             if cnt > maxretry:
                 if debug: print(calledfrom, filename, ':raise error - exceed maxretry attempts:', maxretry)
@@ -654,7 +746,7 @@ def remove_filename(filename, calledfrom='', debug=False, maxretry=20, disp_msg=
 #    debug - bool defines if we display duggging print statements
 #    maxretry - int - number of times we try to delete and then give up (default: 20)
 #
-def remove_dir(dirname, calledfrom='', debug=False, maxretry=20):
+def remove_dir(dirname: str, calledfrom: str='', debug: bool=False, maxretry: int=20) -> str | None:
     cnt = 0
     if calledfrom:  calledfrom += ':'
     while os.path.exists(dirname):
@@ -663,7 +755,7 @@ def remove_dir(dirname, calledfrom='', debug=False, maxretry=20):
         try:
             os.rmdir(dirname)  # try to remove it directly
         #        except OSError as e: # originally just checked for OSError - we now check for all exceptions`
-        except Exception as e:
+        except OSError as e:
             if debug: print(calledfrom, 'errno:', e.errno, ':ENOENT:', errno.ENOENT)
             logger.debug('%s:errno:%s:ENOENT:%s', calledfrom, e.errno, errno.ENOENT)
             if e.errno == errno.ENOENT:  # file doesn't exist
@@ -674,15 +766,22 @@ def remove_dir(dirname, calledfrom='', debug=False, maxretry=20):
                 if debug: print(calledfrom, dirname, ':raise error - exceed maxretry attempts:', maxretry)
                 logger.error('%s:%s:maxretry attempts:%d', calledfrom, dirname, maxretry)
                 raise e
+        except Exception as e:
+            if debug: print(calledfrom, dirname, ':', str(e))
+            logger.debug('%s:%s:%s', calledfrom, dirname, str(e))
+            if cnt > maxretry:
+                if debug: print(calledfrom, dirname, ':raise error - exceed maxretry attempts:', maxretry)
+                logger.error('%s:%s:maxretry attempts:%d', calledfrom, dirname, maxretry)
+                raise e
 
-def dir_remove(dirname, calledfrom='', debug=False, maxretry=20):
-    return remove_dir(dirname, calledfrom='', debug=False, maxretry=20)
+def dir_remove(dirname: str, calledfrom: str='', debug: bool=False, maxretry: int=20) -> str | None:
+    return remove_dir(dirname, calledfrom=calledfrom, debug=debug, maxretry=maxretry)
     
 # define the filename used to create log files
 # that are based on the "day" the program starts running
 # generally used for short running tools
 # not used with tools that start and stay running
-def filename_log_day_of_month(filename, ext_override=None, path_override=None, disp_msg=True):
+def filename_log_day_of_month(filename: str, ext_override: str | None=None, path_override: str | None=None, disp_msg: bool=True) -> str:
     file_path, base_filename, file_ext = filename_split(filename, path_blank=True)
     if ext_override:
         file_ext = ext_override
@@ -701,19 +800,23 @@ def filename_log_day_of_month(filename, ext_override=None, path_override=None, d
 
 # return the filename that is max or min for a given query (UT)
 # default is to return the MIN filematch
-def filename_maxmin(file_glob, reverse=False, exclude_in_name=None):
-    '''
+def filename_maxmin(file_glob: str, reverse: bool=False, exclude_in_name: str | list | None=None, disp_msg: bool=False) -> str | None:
+    """
     file_glob - glob string use to find a list of files
     reverse - if True - find the max file, if false find the min file
     exclude_in_name - defines the list of returned filenames to exclude
        if a string - this excludes filenames that have this string in them (case sensitive)
        if a list of strings - this excludes filenames that have any of these strings in them (case sensitive)
-    '''
+    """
     
     # pull the list of files
     filelist = glob.glob(file_glob)
     # debugging
     logger.debug('filelist:%s', filelist)
+    if disp_msg:
+        print('filename_maxmin file list:')
+        for x in filelist:
+            print(x)
     # if we got no files - return none
     if not filelist:
         logger.debug('Return none')
@@ -723,10 +826,24 @@ def filename_maxmin(file_glob, reverse=False, exclude_in_name=None):
         if type(exclude_in_name) is str:
             # simple string - just exclude any filenames with this string in it (case sensitive)
             filelist = [x for x in filelist if exclude_in_name not in x]
+            # debugging
+            if disp_msg:
+                print('remove filenames:')
+                print(exclude_in_name)
+                print('remaining files:')
+                for x in filelist:
+                    print(x)
         elif type(exclude_in_name) is list and type(exclude_in_name[0]) is str:
             # list of strings - just exclude any filenames with this any of these strings
-            for remove_fname in exclude_in_name:
-                filelist = [x for x in filelist if remove_fname not in x]
+            filelist = [x for x in filelist if x not in exclude_in_name]
+            # debugging
+            if disp_msg:
+                print('remove filenames:')
+                print(exclude_in_name)
+                print('remaining files:')
+                for x in filelist:
+                    print(x)
+
     # if we got no files - return none
     if not filelist:
         logger.debug('Return none after we excluded returned filenames')
@@ -739,10 +856,10 @@ def filename_maxmin(file_glob, reverse=False, exclude_in_name=None):
 # create a filename from part of a filename
 #   pull apart the filename passed in (if passed in) and then fill in the various file parts based
 #   on the other attributes passed in
-def filename_create(filename=None, filename_path=None, filename_base=None, filename_ext=None, path_blank=False,
-                    filename_base_append=None, filename_base_prepend=None, use_input_filename=None,
-                    filename_unique=None):
-    # pull apart the filename passed in
+def filename_create(filename: str | None=None, filename_path: str | None=None, filename_base:str | None=None, filename_ext: str | None=None, path_blank: bool=False,
+                    filename_base_append: str | None=None, filename_base_prepend: str | None=None, use_input_filename: str | None=None,
+                    filename_unique: str | None=None) -> str:
+    # pull apart the filename passed in:
     if filename:
         file_path, base_filename, file_ext = filename_split(filename, path_blank=path_blank)
     else:
@@ -768,7 +885,7 @@ def filename_create(filename=None, filename_path=None, filename_base=None, filen
 
 
 # split up a filename into parts (path, basename, extension) (UT)
-def filename_split(filename, path_blank=False):
+def filename_split(filename: str | os.PathLike, path_blank: bool=False) -> tuple[str | os.PathLike, str | os.PathLike, str]:
     filename2, file_ext = os.path.splitext(filename)
     base_filename = os.path.basename(filename2)
     if path_blank:
@@ -779,7 +896,7 @@ def filename_split(filename, path_blank=False):
 
 
 # function to get back a full list of broken up file path
-def filename_splitall(path):
+def filename_splitall(path: str) -> list[str]:
     allparts = []
     while 1:
         parts = os.path.split(path)
@@ -797,8 +914,8 @@ def filename_splitall(path):
 
 # create a list of filenames given a name, a list of names, file glob,
 # list of include files in a file, list of exclue files in a file
-def filename_list(filename=None, filenamelist=None, fileglob=None, strippath=False, includelist_filename=None,
-                  excludefilenamelist=None, excludelist_filename=None, glob_filename=None):
+def filename_list(filename: str | None=None, filenamelist: str | None=None, fileglob: str | None=None, strippath: str | None=False, includelist_filename: str | None=None,
+                  excludefilenamelist: list | None=None, excludelist_filename: str | None=None, glob_filename: str | None=None) -> list:
     # local variable
     flist = []
     exclude_list = []
@@ -820,7 +937,7 @@ def filename_list(filename=None, filenamelist=None, fileglob=None, strippath=Fal
                 for fname in filename:
                     flist.extend(glob.glob(fname))
             else:
-                flist.append(glob.glob(filename))
+                flist.extend(glob.glob(filename))
         else:
             if isinstance(filename, list):
                 flist.extend(filename)
@@ -843,7 +960,7 @@ def filename_list(filename=None, filenamelist=None, fileglob=None, strippath=Fal
 
 
 # create a full filename and optionally validate directory exists and is writeabile (UT)
-def filename_proper(filename_full, file_dir=None, create_dir=False, write_check=False, debug=False):
+def filename_proper(filename_full: str, file_dir: str | None=None, create_dir: bool=False, write_check: bool=False, debug: bool=False) -> str:
     filename = os.path.basename(filename_full)
     if not file_dir:
         file_dir = os.path.dirname(filename_full)
@@ -887,11 +1004,11 @@ def filename_proper(filename_full, file_dir=None, create_dir=False, write_check=
     return os.path.normpath(full_filename)
 
 # remove a filename
-def filename_remove(filename, calledfrom='', debug=False, maxretry=20, disp_msg=True):
-    return remove_filename(filename, calledfrom='', debug=False, maxretry=20, disp_msg=True)
+def filename_remove(filename: str, calledfrom: str='', debug: bool=False, maxretry: int=20, disp_msg: bool=True):
+    return remove_filename(filename, calledfrom=calledfrom, debug=debug, maxretry=maxretry, disp_msg=disp_msg)
     
 # copy a filename to a new filename
-def filename_copy(src_filename, dst_filename):
+def filename_copy(src_filename: str, dst_filename: str) -> None:
     # Check the operating system and use the respective command
     if os.name == 'nt':  # Windows
         cmd = f'copy "{src_filename}" "{dst_filename}"'
@@ -902,7 +1019,7 @@ def filename_copy(src_filename, dst_filename):
     os.system(cmd)
     
 # create a unique filename
-def filename_unique(filename=None, filename_href=None, debug=False):
+def filename_unique(filename: str | None=None, filename_href: dict | None=None, debug: bool=False) -> str:
     if filename_href is None:
         filename_href = {}
 
@@ -1060,7 +1177,7 @@ def filename_unique(filename=None, filename_href=None, debug=False):
 
 
 # cloudpath - create an absolute path to a folder that is local for cloud drive
-def cloudpath(filepath, filename=''):
+def cloudpath(filepath: str | None=None, filename: str='') -> str:
     userdir = ''
     if filepath is None:
         filepath = ''
@@ -1078,13 +1195,13 @@ def cloudpath(filepath, filename=''):
 
 
 # read a text file into a string (UT)
-def slurp(filename):
+def slurp(filename: str) -> str:
     with open(filename, 'r') as t:
         return t.read()
 
 
 # read in a file and create a list of each populated line (UT)
-def read_list_from_file_lines(filename, stripblank=False, trim=False, encoding=None):
+def read_list_from_file_lines(filename: str, stripblank: bool=False, trim: bool=False, encoding: str | None=None) -> list:
     # read in the file as a list of strings
     if encoding:
         with open(filename, 'r', encoding=encoding) as t:
@@ -1119,7 +1236,7 @@ def functionName(callBackNumber=1):
 #
 # In your program put:  kvutil.loggingAppStart( logger, optiondict, kvutil.scriptinfo()['name'] )
 #
-def loggingAppStart(logger, optiondict, pgm=None):
+def loggingAppStart(logger, optiondict:dict, pgm: str=None) -> None:
     logger.info('-----------------------------------------------------')
     if pgm:
         logger.info('%s:AppVersion:v%s', pgm, optiondict['AppVersion'])
@@ -1180,7 +1297,7 @@ def scriptinfo():
 
 
 # utility used to dump a dictionary to a file in json format
-def load_json_file_to_dict(filename):
+def load_json_file_to_dict(filename: str) -> dict:
     import json
     with open(filename, 'r') as json_in:
         try:
@@ -1202,15 +1319,15 @@ def load_json_file_to_dict(filename):
 
 
 # utility used to dump a dictionary to a file in json format
-def dump_dict_to_json_file(filename, optiondict):
+def dump_dict_to_json_file(filename: str, optiondict: dict) -> None:
     import json
     with open(filename, 'w') as json_out:
         json.dump(optiondict, json_out, indent=4)
 
 
 # utility to convert a dict to a list of dicts that are key, value and new value
-def dict2update_list(in_dict, sorted_flds=None, col_names=None):
-    # colnames is a dictionary with entries tied to the desired output columname
+def dict2update_list(in_dict: dict, sorted_flds: list | None=None, col_names: dict | None=None) -> list:
+    # col_names is a dictionary with entries tied to the desired output columname
     #  {'Field': header_col1, 'CurrentValue': header_col2, 'NewValue': header_col3}
 
     default_column_names = ['Field', 'CurrentValue', 'NewValue']
@@ -1252,10 +1369,10 @@ def dict2update_list(in_dict, sorted_flds=None, col_names=None):
     return outlist
 
 # return true if one of the copy_fields values is populated
-def any_field_is_populated(rec, copy_fields):
-    '''
+def any_field_is_populated(rec: dict, copy_fields: list) -> bool:
+    """
     Return a TRUE if any of the 'copy_fields' elements in rec is populated
-    '''
+    """
     for fld in copy_fields:
         # current conditions - if it returns true or has a length
         if rec[fld]:
@@ -1267,15 +1384,16 @@ def any_field_is_populated(rec, copy_fields):
     return False
 
 # for a list of records and a dictionary with defaults - set columns if blank
-def set_blank_field_values(src_data, set_blank_fields):
-    '''
+def set_blank_field_values(src_data: list[dict], set_blank_fields: dict) -> int:
+    """
     For each record in src_data
     For each column defined in set_blank_fields dictionary (if it is spaces it will not overwrite/update)
     Check the record column value and if not set, then set it to the value from set_blank__fields
 
     src_data - list of dictionaries
     set_blank_fields - dictionary with key and defined value
-    '''
+        {'<col_name1>': <blank_value1>, '<col_name2>': <blank_value2>}
+    """
     records_updated = 0 
     for rec in src_data:
         record_updated = False
@@ -1292,15 +1410,17 @@ def set_blank_field_values(src_data, set_blank_fields):
 
 
 # for a list of records and a dictionary with defaults - set columns if blank
-def convert_hyperlink_field_values(src_data, hyperlink_fields):
-    '''
+def convert_hyperlink_field_values(src_data: list[dict], hyperlink_fields: list) -> int:
+    """
     For each record in src_data
     For each column defined in hyperlink_fields list
     Check the record column value and if not set, then set it to the value from set_blank__fields
 
     src_data - list of dictionaries
     hyperlink_fields - list of columns to check and update
-    '''
+
+    returns:  # of records updated
+    """
     records_updated = 0 
     for rec in src_data:
         record_updated = False
@@ -1317,8 +1437,8 @@ def convert_hyperlink_field_values(src_data, hyperlink_fields):
 
 
 # create a multi-key dictionary from a list of dictionaries
-def create_multi_key_lookup(src_data, fldlist, copy_fields=None, disp_msg=True):
-    '''
+def create_multi_key_lookup(src_data: list[dict], fldlist: list, copy_fields: list=None, disp_msg: bool=True) -> dict:
+    """
     Create a multi key dictionary that gets to the record based on the
     keys in the record
 
@@ -1326,7 +1446,7 @@ def create_multi_key_lookup(src_data, fldlist, copy_fields=None, disp_msg=True):
     then we check the record
     to determine if any of the fields has a value, and if none have a value we skip
     that record
-    '''
+    """
     if not src_data:
         return {}
     if type(src_data) is not list:
@@ -1392,8 +1512,8 @@ def create_multi_key_lookup(src_data, fldlist, copy_fields=None, disp_msg=True):
 
 
 # create a multi-key dictionary from a list of dictionaries
-def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
-    '''
+def create_multi_key_lookup_excel(excel_dict, fldlist: list, copy_fields: list | None=None):
+    """
     not sure this owrks for xcel
 
     Create a multi key dictionary that gets to the record based on the
@@ -1403,7 +1523,7 @@ def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
     then we check the record
     to determine if any of the fields has a value, and if none have a value we skip
     that record
-    '''
+    """
     if type(fldlist) is not list:
         print('fldlist must be type - list - but is: ', type(fldlist))
         raise TypeError()
@@ -1432,6 +1552,7 @@ def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
     # TODO - determine how to step through records on the excel_dict file
     raise NotImplementedError('Not implemented yet')
 
+    # -------------------------------------------------------------------------------
     # step through each record
     for rec in src_data:
         # test that this record has values in the copy_fields attributes
@@ -1463,8 +1584,8 @@ def create_multi_key_lookup_excel(excel_dict, fldlist, copy_fields=None):
     return src_lookup
 
 
-def copy_matched_data_cnt(dst_data, src_lookup, key_fields, copy_fields, force_copy_flds=False, disp_msg=True):
-    '''
+def copy_matched_data_cnt(dst_data: list[dict], src_lookup: dict, key_fields: list, copy_fields: list, force_copy_flds: bool=False, disp_msg: bool=True):
+    """
     copy into dst_data from src_lookup, copy_fields when there is a match
     on key_fields
 
@@ -1478,7 +1599,7 @@ def copy_matched_data_cnt(dst_data, src_lookup, key_fields, copy_fields, force_c
     force the dst_data field if it does not exist
 
     provide the ability to return the number of records that were actual updated
-    '''
+    """
     # make sure we passed in a list
     if not isinstance(key_fields, list):
         if disp_msg:
@@ -1572,15 +1693,15 @@ def copy_matched_data_cnt(dst_data, src_lookup, key_fields, copy_fields, force_c
     # return the number of records that matched
     return matched_recs, updated_recs
 
-def copy_matched_data(dst_data, src_lookup, key_fields, copy_field, force_copy_flds=False, disp_msg=True):
-    '''
+def copy_matched_data(dst_data: list[dict], src_lookup: dict, key_fields: list, copy_fields: list, force_copy_flds: bool=False, disp_msg: bool=True):
+    """
     copy into dst_data from src_lookup, copy_fields when there is a match
     on key_fields
-    '''
+    """
     matched_recs, updated_recs = copy_matched_data_cnt(
         dst_data, src_lookup,
         key_fields,
-        copy_field,
+        copy_fields,
         force_copy_flds=force_copy_flds,
         disp_msg=disp_msg
     )
@@ -1588,8 +1709,8 @@ def copy_matched_data(dst_data, src_lookup, key_fields, copy_field, force_copy_f
     return matched_recs
 
 
-def diff_matched_data(dst_data, src_lookup, key_fields, diff_fields=None, exc_fields=None):
-    '''
+def diff_matched_data(dst_data: list[dict], src_lookup: dict, key_fields: list, diff_fields: list | None=None, exc_fields: list | None=None):
+    """
     diff matching reocrds in dst_data from src_lookup,
     build output records that show where the value in dst_data does not
     match the same column in src_lookup when there is a match
@@ -1597,7 +1718,7 @@ def diff_matched_data(dst_data, src_lookup, key_fields, diff_fields=None, exc_fi
     if diff_fields is set - diff those columns
     if diff_fields is None - then the columsn to diff are the columns
     in dst_data less the key fields and less the exc_fields
-    '''
+    """
     # capture the exc_fields
     if exc_fields is None:
         exc_fields = []
@@ -1665,10 +1786,10 @@ def diff_matched_data(dst_data, src_lookup, key_fields, diff_fields=None, exc_fi
     return diffs
 
 
-def extract_unmatched_data(src_data, dst_lookup, key_fields):
-    '''
+def extract_unmatched_data(src_data: list[dict], dst_lookup: dict, key_fields: list):
+    """
     return the list of records in src_data that are no longer in dst_lookup
-    '''
+    """
     # make sure we passed in a list
     if type(key_fields) is not list:
         print('key_fields must be type - list - but is: ', type(key_fields))
@@ -1708,4 +1829,37 @@ def extract_unmatched_data(src_data, dst_lookup, key_fields):
     # return the number of records that matched
     return unmatched_recs
 
+def disp_dict_on_key_idx(disp_dict: dict, idx: int, disp_dict_name:str|None = None):
+    """
+    display the dict record based on an idx (numberic value) on a key
+    """
+    try:
+        # get the list of keys and then pick the "idx" value of it
+        thekey = list([x for x in disp_dict.keys()])[idx]
+        # if they provided the name to display - display it
+        if disp_dict_name:
+            print(disp_dict_name)
+        # show them the value of they key
+        print(f'{idx}:{thekey}')
+        # display the dict fully
+        pprint.pprint(disp_dict[thekey])
+    except Exception as e:
+        print('ERROR: ', e)
+        
+def disp_dict_on_key_value(disp_dict: dict, thekey: any, disp_dict_name:str|None = None):
+    """
+    display the dict record based on the value of a key
+    """
+    try:
+        # if they provided the name to display - display it
+        if disp_dict_name:
+            print(disp_dict_name)
+        # show them the value of they key
+        print(f'{thekey}')
+        # display the dict fully
+        pprint.pprint(disp_dict[thekey])
+    except Exception as e:
+        print('ERROR: ', e)
+
+    
 # eof
