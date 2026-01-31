@@ -19,7 +19,7 @@ numpy==2.3.0
 oauthlib==3.2.2
 openpyxl==3.1.5
 packaging==25.0
-pillow==11.2.1
+pillow==11.3.0
 proto-plus==1.26.1
 protobuf==6.31.1
 pyasn1==0.6.1
