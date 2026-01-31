@@ -35,7 +35,7 @@ rsa==4.9.1
 simplejson==3.20.1
 six==1.17.0
 uritemplate==4.2.0
-urllib3==2.4.0
+urllib3==2.6.3
 wheel==0.45.1
 xlrd==2.0.2
 XlsxWriter==3.2.3
