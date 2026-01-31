@@ -152,6 +152,8 @@ DATE_FMT = '%m/%d/%Y'
 # xls file occtype conversion to
 # an array that is:  new code and # of days to add to stay for temp control
 OCC_TYPE_CONV = {
+    'Friends': ['R', 1],
+    'Hold': ['R', 1],
     'Hold - Clean': ['C', 0],
     'Hold - Construction': ['O', 1],
     'Hold - Fall Mbr Event': ['O', 1],
@@ -186,6 +188,7 @@ OCC_TYPE_CONV = {
     'Rest - Renter': ['R', 1],
     'Res.-Owner': ['O', 1],
     'Res.-Renter': ['R', 1],
+    'TA/Villa Specalist': ['R', 1],
     'VRBO/Repeat guest': ['R',1],
 
 }
@@ -265,7 +268,7 @@ def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldTyp
         for fld in (fldFirstNight, fldLastNight):
             if not isinstance(rec[fld], datetime.datetime):
                 date_error = True
-                errors.append('Field {} not of type datetime: {}'.format(fld,
+                errors.append('Field [{}] not of type datetime: {}'.format(fld,
                                                                          {'recidx': recidx,
                                                                           'type': type(rec[fldFirstNight]),
                                                                           'rec': rec}))
@@ -275,7 +278,7 @@ def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldTyp
             dt_diff = rec[fldLastNight] - rec[fldFirstNight]
             num_nights = int(rec[fldNights])
             if dt_diff.days != num_nights:
-                errors.append('Field {} not calc as date difference: {}'.format(fld,
+                errors.append('Field [{}] not calc as date difference: {}'.format(fld,
                                                                                 {'recidx': recidx,
                                                                                  'dt_diff': dt_diff.days,
                                                                                  'num_nights': num_nights,
@@ -283,7 +286,7 @@ def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldTyp
 
         # check the record / reservation type
         if rec[fldType] not in OCC_TYPE_CONV:
-            errors.append('Field {} not in OCC_TYPE_CONV: {}'.format(fldType,
+            errors.append('Field [{}] not in OCC_TYPE_CONV: {}'.format(fldType,
                                                                      {'recidx': recidx,
                                                                       'rec_fldtype': rec[fldType],
                                                                       'rec': rec,
@@ -292,7 +295,7 @@ def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldTyp
         if rec[BOOKING_FLD] is None:
             continue
         elif rec[BOOKING_FLD] in booking:
-            errors.append('Field {} booking already exists: {}'.format(fldType,
+            errors.append('Field [{}] booking already exists: {}'.format(fldType,
                                                                        {'recidx': recidx,
                                                                         'orig_recidx': booking[rec[BOOKING_FLD]]['recidx'],
                                                                         'booking': rec[BOOKING_FLD],
