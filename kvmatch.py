@@ -1,50 +1,99 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.12
+@version: 1.14
 
 Library of tools used in finding matches - used by kvcsv and kvxls
 """
 
 # logging
 import logging
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 # global variables
-AppVersion = '1.12'
+AppVersion = "1.14"
 
 
 # this class is used to take a row and data and determine if it matches a minimal requirement
 
+
 # utility used to create a new consolidate key that is a multi-field key
-def build_multifield_key(rowdict: dict, dictkeys: list[str] | str, joinchar: str='|', debug: bool=False) -> str:
+def build_multifield_key(
+    rowdict: dict,
+    dictkeys: list[str] | str,
+    joinchar: str = "|",
+    debug: bool = False,
+) -> str:
+    """
+    Utility used to create a new consolidated business key string built off of key/value in the row dict
+
+    Inputs:
+        rowdict: dict - the data/record that we are processing
+        dictkeys: list | Any - if it is a single value we convert it to a list object - these are the keys that we will combine
+                         from rowdict to create the composite string that is the business key
+        joinchar - str/character - this is the 'join' string between values that make up the composite key
+        debug - bool - when true we print out statements about what is going on
+
+    Returns:
+        business_key - str - the concatenation of the string values of row[dictkeys] with teh joinchar separator
+
+    """
     # validate we passed in the required keys
+    if not rowdict:
+        raise ValueError("rowdict not populated")
+    if not isinstance(rowdict, dict):
+        raise TypeError(f"rowdict must be dict but is: {type(rowdict)}")
     if not dictkeys:
-        logger.debug('missing dictkeys')
-        raise Exception('dictkeys not provided')
-    if debug:
-        print('build_multifield_key:dictkeys:', dictkeys)
-        print('build_multifield_key:rowdict:', rowdict)
-    logger.debug('dictkeys:%s', dictkeys)
-    logger.debug('rowdict:%s', rowdict)
-    if isinstance(dictkeys, str):
+        raise ValueError("dictkeys not provided")
+    if isinstance(dictkeys, (str, int, float, datetime)):
+        # convert teh string to a list element
         dictkeys = [dictkeys]
+    if debug:
+        print("build_multifield_key:dictkeys:", dictkeys)
+        print("build_multifield_key:rowdict:", rowdict)
+    if not isinstance(dictkeys, list):
+        raise TypeError(f"dictkeys must be list but is: {type(dictkeys)}")
+    # validate that hte keys in dictkeys are keys in rowdict
+    badkeys = [x for x in dictkeys if x not in rowdict]
+    if badkeys:
+        raise ValueError("dictkeys not in rowdict: " + ",".join(str(badkeys)))
+    logger.debug("dictkeys:%s", dictkeys)
+    logger.debug("rowdict:%s", rowdict)
+    # get the string value for each key and concatenate and return
     return joinchar.join([str(rowdict[key]) for key in dictkeys])
 
 
 # the warning message string for optiondict concerns
 def badoption_msg(func: str, val, val2, fixed=None):
     if fixed is None:
-        return '%s:possible mistyped optiondict key [%s] could be [%s]' % (func, val, val2)
+        return "%s:possible mistyped optiondict key [%s] could be [%s]" % (
+            func,
+            val,
+            val2,
+        )
     elif fixed:
-        return '%s:possible mistyped optiondict key [%s] could be [%s] - this was fixed' % (func, val, val2)
+        return (
+            "%s:possible mistyped optiondict key [%s] could be [%s] - this was fixed"
+            % (func, val, val2)
+        )
     else:
-        return '%s:possible mistyped optiondict key [%s] could be [%s] - this was NOT fixed' % (func, val, val2)
+        return (
+            "%s:possible mistyped optiondict key [%s] could be [%s] - this was NOT fixed"
+            % (func, val, val2)
+        )
 
 
 # the utility used to look at an optiondict and look for possibly bad keys passed in
-def badoptiondict_check(func: str, optiondict: dict, badoptiondict: dict, noshowwarning: bool=False, dieonbadoption: bool=False, fix_missing: bool=False) -> list[str]:
+def badoptiondict_check(
+    func: str,
+    optiondict: dict,
+    badoptiondict: dict,
+    noshowwarning: bool = False,
+    dieonbadoption: bool = False,
+    fix_missing: bool = False,
+) -> list[str]:
     """
     func - str tells us who called this - usercontrolled
     optiondict - list of options to be inspected, warned, terminated or fixed
@@ -53,34 +102,37 @@ def badoptiondict_check(func: str, optiondict: dict, badoptiondict: dict, noshow
     dieonbadoption - when true - if we have a badoption key die
     fix_missing - when true fix this key if the proper key does ot already exist
     """
-    
+
     # check optiondict for unexpected/mistyped values and provide warnings
     warnings = []
     if False:
-        print('optiondict')
+        print("optiondict")
         print(optiondict)
-        print('badoptiondict')
+        print("badoptiondict")
         print(badoptiondict)
         print(dieonbadoption, noshowwarning, fix_missing)
     for val in badoptiondict:
         # for each bad entry
         if val in optiondict:
             # do we have it - we do
-            fixed=None
+            fixed = None
             if fix_missing:
                 # if we fix it check to see if the right value is already set
-                fixed=False
+                fixed = False
                 if badoptiondict[val] not in optiondict:
                     optiondict[badoptiondict[val]] = optiondict[val]
-                    fixed=True
+                    fixed = True
             # fixed or not create the warning
-            warnings.append(badoption_msg(func, val, badoptiondict[val], fixed=fixed))
+            warnings.append(
+                badoption_msg(func, val, badoptiondict[val], fixed=fixed)
+            )
             # display directly is appropriate
-            if not noshowwarning: print(warnings[-1])
+            if not noshowwarning:
+                print(warnings[-1])
 
     # check to see if we should raise an error if we find problems
     if dieonbadoption and warnings:
-        raise Exception('badoption found')
+        raise Exception("badoption found")
 
     # now return the warnings
     return warnings
@@ -105,25 +157,42 @@ class MatchRow(object):
     """
 
     # set up the parser with input information
-    def __init__(self, req_cols: list[str], xlatdict: dict | None=None, optiondict: dict | None=None, optiondict2: dict | None=None, debug: bool=False):
+    def __init__(
+        self,
+        req_cols: list[str],
+        xlatdict: dict | None = None,
+        optiondict: dict | None = None,
+        optiondict2: dict | None = None,
+        debug: bool = False,
+    ):
         # validate input types
         if req_cols and not isinstance(req_cols, list):
-            raise Exception(u'req_cols must be a list: {}'.format(req_cols))
+            raise ValueError(
+                "req_cols must be a list: {}".format(type(req_cols))
+            )
         if xlatdict is None:
             xlatdict = {}
         elif not isinstance(xlatdict, dict):
-            raise Exception(u'xlatdict must be a dict: {}'.format(req_cols))
+            raise Exception(
+                "xlatdict must be a dict: {}".format(type(xlatdict))
+            )
         if optiondict is None:
             optiondict = {}
         elif not isinstance(optiondict, dict):
-            raise Exception(u'optiondict must be a dict: {}'.format(req_cols))
+            raise Exception(
+                "optiondict must be a dict: {}".format(type(optiondict))
+            )
         if optiondict2 is None:
             optiondict2 = {}
         elif not isinstance(optiondict2, dict):
-            raise Exception(u'optiondict2 must be a dict: {}'.format(req_cols))
+            raise Exception(
+                "optiondict2 must be a dict: {}".format(type(optiondict2))
+            )
 
         # setup variables
-        self._req_cols = req_cols[:]  # make sure we have a copy of this so it does not get changed on us
+        self._req_cols = req_cols[
+            :
+        ]  # make sure we have a copy of this so it does not get changed on us
         self._xlatdict = {}  # xref dictionary with passed and (if nocase - lower case keys)
         self._xlatdict_lower = {}  # xref dictionary for lower case key and lower case value
 
@@ -134,8 +203,10 @@ class MatchRow(object):
         self._match_columns = 0  # count of columns we have matched
 
         self.search_failed = False  # if true - we did not succeed in the search
-        self.search_exceeded = False  # if true - we exceeded the number of rows to check
-        self.error_msg = ''  # if search_failed - this is populated with a string describing why the search failed
+        self.search_exceeded = (
+            False  # if true - we exceeded the number of rows to check
+        )
+        self.error_msg = ""  # if search_failed - this is populated with a string describing why the search failed
         self.warning_msg = []  # list of warning messages
 
         self.rowcount = 0  # counts the number of rows processed
@@ -146,11 +217,15 @@ class MatchRow(object):
 
         # optiondict values passed in
         self.nocase = False  # if true - we check for key match case insensitive
-        self.unique_column = False  # if true - we must have unqiue columns in the final result
+        self.unique_column = (
+            False  # if true - we must have unqiue columns in the final result
+        )
         self.max_rows = 10  # max number of rows to check
-        self.no_warnings = False  # if true - we supress sending out warning message
+        self.no_warnings = (
+            False  # if true - we supress sending out warning message
+        )
         self.dieonbadoption = False  # if true - we raise error on bad options
-        self.fix_missing = False # if true - we fix, if None display no msg
+        self.fix_missing = False  # if true - we fix, if None display no msg
 
         # variables
         self._data = []
@@ -160,26 +235,33 @@ class MatchRow(object):
 
         # create the list of misconfigured solutions
         badoptiondict = {
-            'diebadoption': 'dieonbadoption',
-            'die_badoption': 'dieonbadoption',
-            'die_onbadoption': 'dieonbadoption',
-            'no_case': 'nocase',
-            'maxrow': 'max_rows',
-            'maxrows': 'max_rows',
-            'max_row': 'max_rows',
-            'uniquecolumn': 'unique_column',
-            'uniquecolumns': 'unique_column',
-            'unique_columns': 'unique_column',
-            'nowarning': 'no_warnings',
-            'nowarnings': 'no_warnings',
-            'no_warning': 'no_warnings',
-            'noshowwarning': 'no_warnings',
-            'noshowwarnings': 'no_warnings',
-            'fixmissing': 'fix_missing',
+            "diebadoption": "dieonbadoption",
+            "die_badoption": "dieonbadoption",
+            "die_onbadoption": "dieonbadoption",
+            "no_case": "nocase",
+            "maxrow": "max_rows",
+            "maxrows": "max_rows",
+            "max_row": "max_rows",
+            "uniquecolumn": "unique_column",
+            "uniquecolumns": "unique_column",
+            "unique_columns": "unique_column",
+            "nowarning": "no_warnings",
+            "nowarnings": "no_warnings",
+            "no_warning": "no_warnings",
+            "noshowwarning": "no_warnings",
+            "noshowwarnings": "no_warnings",
+            "fixmissing": "fix_missing",
         }
 
         optiondict3 = {}
-        for fld in ['nocase','unique_column','max_rows','no_warnings','dieonbadoption','fix_missing']:
+        for fld in [
+            "nocase",
+            "unique_column",
+            "max_rows",
+            "no_warnings",
+            "dieonbadoption",
+            "fix_missing",
+        ]:
             if fld in optiondict2:
                 optiondict3[fld] = optiondict2[fld]
             elif fld in optiondict:
@@ -191,31 +273,35 @@ class MatchRow(object):
             elif v not in optiondict3 and fld in optiondict:
                 optiondict3[v] = optiondict[fld]
 
-
         # debugging
         if debug:
-            print('kvmatch.MatchRow:init:optiondict3:')
-            for k,v in optiondict3.items():
-                print(k,v)
-
+            print("kvmatch.MatchRow:init:optiondict3:")
+            for k, v in optiondict3.items():
+                print(k, v)
 
         # update flag/setting if options is set
-        if 'nocase' in optiondict3:
-            self.nocase = optiondict3['nocase']
-        if 'unique_column' in optiondict3:
-            self.unique_column = optiondict3['unique_column']
-        if 'max_rows' in optiondict3:
-            self.max_rows = optiondict3['max_rows']
-        if 'no_warnings' in optiondict3:
-            self.no_warnings = optiondict3['no_warnings']
-        if 'dieonbadoption' in optiondict3:
-            self.dieonbadoption = optiondict3['dieonbadoption']
-        if 'fix_missing' in optiondict3:
-            self.fix_missing = optiondict3['fix_missing']
+        if "nocase" in optiondict3:
+            self.nocase = optiondict3["nocase"]
+        if "unique_column" in optiondict3:
+            self.unique_column = optiondict3["unique_column"]
+        if "max_rows" in optiondict3:
+            self.max_rows = optiondict3["max_rows"]
+        if "no_warnings" in optiondict3:
+            self.no_warnings = optiondict3["no_warnings"]
+        if "dieonbadoption" in optiondict3:
+            self.dieonbadoption = optiondict3["dieonbadoption"]
+        if "fix_missing" in optiondict3:
+            self.fix_missing = optiondict3["fix_missing"]
 
         # check what got passed in
-        self.warning_msg = badoptiondict_check('kvmatch:MatchRow:__init__', optiondict, badoptiondict, self.no_warnings,
-                                               self.dieonbadoption, self.fix_missing)
+        self.warning_msg = badoptiondict_check(
+            "kvmatch:MatchRow:__init__",
+            optiondict,
+            badoptiondict,
+            self.no_warnings,
+            self.dieonbadoption,
+            self.fix_missing,
+        )
 
         # copy over the translations dictionary and add values if required
         for key in xlatdict:
@@ -232,7 +318,7 @@ class MatchRow(object):
     def lower_max_row_by_reccount(self, reccount: int) -> None:
         if reccount < self.max_rows:
             self.max_rows = reccount
-            
+
     # clear values to prep for a new run through the data
     def reset(self) -> None:
         self.setupForMatch()
@@ -243,7 +329,7 @@ class MatchRow(object):
         self._data_mapped = []
         self.search_failed = False
         self.search_exceed = False
-        self.error_msg = ''
+        self.error_msg = ""
 
     # clear values to support a new run to look for a match
     def setupForMatch(self) -> None:
@@ -258,7 +344,7 @@ class MatchRow(object):
 
     # this routine takes data and create the remapped list
     def remappedRow(self, data, debug=False) -> list[dict]:
-        blankfmt = 'blank%03d'
+        blankfmt = "blank%03d"
         blankcount = 1
 
         remapped = []
@@ -268,8 +354,9 @@ class MatchRow(object):
                 # no value specified - create the field name using string formatting
 
                 # debugging
-                if debug: print('not val:', blankfmt % blankcount)
-                logger.debug('not val:%s', blankfmt % blankcount)
+                if debug:
+                    print("not val:", blankfmt % blankcount)
+                logger.debug("not val:%s", blankfmt % blankcount)
                 # no value in this field - create a new value and save
                 remapped.append(blankfmt % blankcount)
                 # increment the counter
@@ -278,23 +365,39 @@ class MatchRow(object):
                 # this field converts directly based on information in xlatdict
 
                 # debugging
-                if debug: print('xlatdict:val:', val, ':xladict:', self._xlatdict[val])
-                logger.debug('xlatdict:val:%s:xladict:%s', val, self._xlatdict[val])
+                if debug:
+                    print(
+                        "xlatdict:val:", val, ":xladict:", self._xlatdict[val]
+                    )
+                logger.debug(
+                    "xlatdict:val:%s:xladict:%s", val, self._xlatdict[val]
+                )
                 # coverts directly
                 remapped.append(self._xlatdict[val])
             elif self.nocase and val.lower() in self._xlatdict_lower:
                 # the lower case version of this field translates to the lowercase version directly
 
                 # debugging
-                if debug: print('nocase:xlatdict:val:', val, ':xladict_lower:', self._xlatdict_lower[val.lower()])
-                logger.debug('nocase:xlatdict:val:%s:xladict_lower:%s', val, self._xlatdict_lower[val.lower()])
+                if debug:
+                    print(
+                        "nocase:xlatdict:val:",
+                        val,
+                        ":xladict_lower:",
+                        self._xlatdict_lower[val.lower()],
+                    )
+                logger.debug(
+                    "nocase:xlatdict:val:%s:xladict_lower:%s",
+                    val,
+                    self._xlatdict_lower[val.lower()],
+                )
                 # lower case value converts - but use the _xlatdict - because that points to the proper result
                 # the xlatdict_lower has lower case key and lower case result
                 remapped.append(self._xlatdict[val.lower()])
             else:
                 # debugging
-                if debug: print('val:', val)
-                logger.debug('val:%s', val)
+                if debug:
+                    print("val:", val)
+                logger.debug("val:%s", val)
                 # just take the value we got
                 remapped.append(val)
 
@@ -302,7 +405,7 @@ class MatchRow(object):
         return remapped
 
     # validate the data is unique values - if not pass back the values that are duplicated
-    def _unique_values(self, data: list, debug: bool=False) -> list:
+    def _unique_values(self, data: list, debug: bool = False) -> list:
         # dictionary to count number of times we have seen a value
         seen_val = {}
         # capture values that have duplicates
@@ -310,8 +413,8 @@ class MatchRow(object):
 
         # debugging
         if debug:
-            print('_unique_values:data:', data)
-        logger.debug('data:%s', data)
+            print("_unique_values:data:", data)
+        logger.debug("data:%s", data)
 
         # step through the list of values provided
         for val in data:
@@ -329,33 +432,39 @@ class MatchRow(object):
         return duplicate_val
 
     # pass back True if this row matches the requirements
-    def matchRowList(self, data: list, debug: bool=False) -> bool | None:
+    def matchRowList(self, data: list, debug: bool = False) -> bool | None:
         # increment the row counter
         self.rowcount += 1
 
         # debugging
         if debug:
-            print('matchRowList:start-of-this-routine')
-            print('matchRowList:xlatdict:', self._xlatdict)
-            print('matchRowList:req_cols:', self._req_cols)
-            print('matchRowList:data:', data)
-            print('matchRowList:rowcount:', self.rowcount)
-            print('matchRowList:max_rows:', self.max_rows)
-            print('matchRowList:nocase:', self.nocase)
+            print("matchRowList:start-of-this-routine")
+            print("matchRowList:xlatdict:", self._xlatdict)
+            print("matchRowList:req_cols:", self._req_cols)
+            print("matchRowList:data:", data)
+            print("matchRowList:rowcount:", self.rowcount)
+            print("matchRowList:max_rows:", self.max_rows)
+            print("matchRowList:nocase:", self.nocase)
 
-        logger.debug('xlatdict:%s', self._xlatdict)
-        logger.debug('req_cols:%s', self._req_cols)
-        logger.debug('data:%s', data)
-        logger.debug('rowcount:%s', self.rowcount)
-        logger.debug('nocase:%s', self.nocase)
+        logger.debug("xlatdict:%s", self._xlatdict)
+        logger.debug("req_cols:%s", self._req_cols)
+        logger.debug("data:%s", data)
+        logger.debug("rowcount:%s", self.rowcount)
+        logger.debug("nocase:%s", self.nocase)
 
         # some upfront tests
         if self.rowcount > self.max_rows:
-            if debug:  print('matchRowList:rowcount > max_rows - set variables and return None')
-            logger.debug('rowcount > max_rows - set variables and return None')
+            if debug:
+                print(
+                    "matchRowList:rowcount > max_rows - set variables and return None"
+                )
+            logger.debug("rowcount > max_rows - set variables and return None")
             self.search_failed = True
             self.search_exceeded = True
-            self.error_msg = 'Max search row count [%s] exceeded at row [%s]' % (self.max_rows, self.rowcount)
+            self.error_msg = (
+                "Max search row count [%s] exceeded at row [%s]"
+                % (self.max_rows, self.rowcount)
+            )
             return None
 
         # initialize what we need to match on
@@ -365,15 +474,17 @@ class MatchRow(object):
         for val in data:
             # if this is blank get next value - no work to do here
             if not val:
-                if debug: print('matchRowList:skip val as blank')
-                logger.debug('skip val as blank')
+                if debug:
+                    print("matchRowList:skip val as blank")
+                logger.debug("skip val as blank")
                 continue
 
             # if we are nocase and this is a string - we want to be lower case
             if self.nocase and isinstance(val, str):
                 val = val.lower()
-                if debug: print('matchRowList:convert to lower case:', val)
-                logger.debug('convert to lower case:%s', val)
+                if debug:
+                    print("matchRowList:convert to lower case:", val)
+                logger.debug("convert to lower case:%s", val)
 
             # << might add back in the converstion of \r or \r\n to \n
 
@@ -387,48 +498,99 @@ class MatchRow(object):
                 self._match_count[val] += 1
                 self._header_row.append(val)
                 # debugging
-                if debug: print('matchRowList:increment match_count for val:', val)
-                logger.debug('increment match_count for val:%s', val)
-            elif val in self._xlatdict and self._xlatdict[val] in self._match_count:
+                if debug:
+                    print("matchRowList:increment match_count for val:", val)
+                logger.debug("increment match_count for val:%s", val)
+            elif (
+                val in self._xlatdict
+                and self._xlatdict[val] in self._match_count
+            ):
                 self._match_count[self._xlatdict[val]] += 1
                 # debugging
-                if debug: print('matchRowList:increment match_count for val:', val, ':xlatdict[val]:', self._xlatdict[val])
-            elif val in self._xlatdict_lower and self._xlatdict_lower[val] in self._match_count:
+                if debug:
+                    print(
+                        "matchRowList:increment match_count for val:",
+                        val,
+                        ":xlatdict[val]:",
+                        self._xlatdict[val],
+                    )
+            elif (
+                val in self._xlatdict_lower
+                and self._xlatdict_lower[val] in self._match_count
+            ):
                 self._match_count[self._xlatdict_lower[val]] += 1
                 # debugging
-                if debug: print('matchRowList:increment match_count for val:', val, ':xlatdict_lower[val]:',
-                                self._xlatdict_lower[val])
-                logger.debug('increment match_count for val:%s:xlatdict_lower[val]:%s', val, self._xlatdict_lower[val])
+                if debug:
+                    print(
+                        "matchRowList:increment match_count for val:",
+                        val,
+                        ":xlatdict_lower[val]:",
+                        self._xlatdict_lower[val],
+                    )
+                logger.debug(
+                    "increment match_count for val:%s:xlatdict_lower[val]:%s",
+                    val,
+                    self._xlatdict_lower[val],
+                )
             else:
                 # debugging
-                logger.debug('no match val:%s', val)
+                logger.debug("no match val:%s", val)
                 if debug:
-                    print('matchRowList:no match val:', val)
+                    print("matchRowList:no match val:", val)
                     if val in self._xlatdict:
-                        print('matchRowList:nomatch:xlatdict[val]:', self._xlatdict[val])
+                        print(
+                            "matchRowList:nomatch:xlatdict[val]:",
+                            self._xlatdict[val],
+                        )
                     elif val in self._xlatdict_lower:
-                        print('matchRowList:nomatch:xlatdict_lower[val]:', self._xlatdict_lower[val])
+                        print(
+                            "matchRowList:nomatch:xlatdict_lower[val]:",
+                            self._xlatdict_lower[val],
+                        )
 
         # debugging
-        if debug:  print('matchRowList:_match_count:', self._match_count)
-        logger.debug('_match_count:%s', self._match_count)
+        if debug:
+            print("matchRowList:_match_count:", self._match_count)
+        logger.debug("_match_count:%s", self._match_count)
 
         # count the number of column matches we got
         for col in self._req_cols:
             if self.nocase and self._match_count[col.lower()]:
                 self._match_columns += 1
-                if debug:  print('matchRowList:increment on col.lower:', col, ':match_columns:', self._match_columns)
-                logger.debug('increment on col.lower:%s:match_columns:%s', col, self._match_columns)
+                if debug:
+                    print(
+                        "matchRowList:increment on col.lower:",
+                        col,
+                        ":match_columns:",
+                        self._match_columns,
+                    )
+                logger.debug(
+                    "increment on col.lower:%s:match_columns:%s",
+                    col,
+                    self._match_columns,
+                )
             elif not self.nocase and self._match_count[col]:
                 self._match_columns += 1
-                if debug:  print('matchRowList:increment on col:', col, ':match_columns:', self._match_columns)
-                logger.debug('increment on col:%s:match_columns:%s', col, self._match_columns)
+                if debug:
+                    print(
+                        "matchRowList:increment on col:",
+                        col,
+                        ":match_columns:",
+                        self._match_columns,
+                    )
+                logger.debug(
+                    "increment on col:%s:match_columns:%s",
+                    col,
+                    self._match_columns,
+                )
 
         # debugging
-        if debug: print('matchRowList:match_columns:', self._match_columns)
-        if debug: print('matchRowList:len(req_cols):', len(self._req_cols))
-        logger.debug('match_columns:%s', self._match_columns)
-        logger.debug('len(req_cols):%d', len(self._req_cols))
+        if debug:
+            print("matchRowList:match_columns:", self._match_columns)
+        if debug:
+            print("matchRowList:len(req_cols):", len(self._req_cols))
+        logger.debug("match_columns:%s", self._match_columns)
+        logger.debug("len(req_cols):%d", len(self._req_cols))
 
         # now check if the count is the same
         if self._match_columns == len(self._req_cols):
@@ -439,22 +601,35 @@ class MatchRow(object):
 
             # final test - check to see if we required unique columns
             if self.unique_column:
-                duplicate_col = self._unique_values(self._data_mapped, debug=debug)
+                duplicate_col = self._unique_values(
+                    self._data_mapped, debug=debug
+                )
 
                 # now test to see if we have duplicates
                 if duplicate_col:
                     self.search_failed = True
-                    self.error_msg = 'Row found with duplicate column headers:' + ','.join(duplicate_col)
+                    self.error_msg = (
+                        "Row found with duplicate column headers:"
+                        + ",".join(duplicate_col)
+                    )
                     return None
 
             # return true
             return True
         elif self.rowcount == self.max_rows:
-            if debug:  print('matchRowList:rowcount == max_rows - match not found, set variables and return None')
-            logger.debug('rowcount == max_rows - match not found, set variables and return None')
+            if debug:
+                print(
+                    "matchRowList:rowcount == max_rows - match not found, set variables and return None"
+                )
+            logger.debug(
+                "rowcount == max_rows - match not found, set variables and return None"
+            )
             self.search_failed = True
             self.search_exceeded = True
-            self.error_msg = 'Max search row count [%s] exceeded at row [%s] - no match found' % (self.max_rows, self.rowcount)
+            self.error_msg = (
+                "Max search row count [%s] exceeded at row [%s] - no match found"
+                % (self.max_rows, self.rowcount)
+            )
             return False
 
 
