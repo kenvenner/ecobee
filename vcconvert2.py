@@ -115,15 +115,19 @@ REVPERDAY_FLD = "RevPerDay"
 REVTOTAL_FLD = "Rent"
 STAYS_FLD = "Nights"
 POOL_FLD = "PoolEnabled"
+TYPE_FLD = "Type"
+FIRST_NIGHT_FLD =  "First Night"
+NIGHTS_FLD = "Nights"
+CHECKOUT_FLD = "Checkout Day"
 
 
 # xls header definition
 COL_REQUIRED = [
     BOOKING_FLD,
-    "First Night",
-    "Checkout Day",
+    FIRST_NIGHT_FLD,
+    CHECKOUT_FLD,
     STAYS_FLD,
-    "Type",
+    TYPE_FLD,
     REVTOTAL_FLD,
     "Source",
     "HoldUntil",
@@ -136,15 +140,15 @@ OLD_FIELDS = [
     "BookedOn",
 ]
 
-COL_CENTERED = ["Nights", "Source", "Managing", "Confirmed"]
+COL_CENTERED = [NIGHTS_FLD, "Source", "Managing", "Confirmed"]
 
 COL_NUMBER_FLDS = ["Rent"]
 
 COL_WIDTH = {
     BOOKING_FLD: 12,
-    "First Night": 12,
-    "Checkout Day": 15,
-    "Type": 17,
+    FIRST_NIGHT_FLD: 12,
+    CHECKOUT_FLD: 15,
+    TYPE_FLD: 17,
     REVTOTAL_FLD: 12,
     "Source": 17,
     "Managing": 15,
@@ -231,24 +235,24 @@ optiondictconfig = {
         "description": "defines the name of the file holding the historical villa occupancy",
     },
     "xlsdateflds": {
-        "value": ["First Night", "Checkout Day", "BookedOn", "HoldUntil"],
+        "value": [FIRST_NIGHT_FLD, CHECKOUT_FLD, "BookedOn", "HoldUntil"],
         "type": "liststr",
         "description": "defines the list of date fields inside the xls",
     },
     "fld_first_night": {
-        "value": "First Night",
+        "value": FIRST_NIGHT_FLD,
         "description": "defines the name of the field holding the first night date",
     },
     "fld_nights": {
-        "value": "Nights",
+        "value": NIGHTS_FLD,
         "description": "defines the name of the field holding the int of nights stay",
     },
     "fld_last_night": {
-        "value": "Checkout Day",
+        "value": CHECKOUT_FLD,
         "description": "defines the name of the field holding the first night date",
     },
     "fld_type": {
-        "value": "Type",
+        "value": TYPE_FLD,
         "description": "defines the name of the field holding the type of the stay",
     },
     "fld_date": {
@@ -456,7 +460,7 @@ def assign_booking_code(rec: dict, max_values: dict) -> str:
     :returns booking_code: (str)
 
     """
-    booking_code = OCC_TYPE_2_BOOKING_CODE[OCC_TYPE_CONV[rec["Type"]][0]]
+    booking_code = OCC_TYPE_2_BOOKING_CODE[OCC_TYPE_CONV[rec[TYPE_FLD]][0]]
     if booking_code not in max_values:
         max_values[booking_code] = 0
     next_value = int(int(max_values[booking_code]) / 10 + 1) * 10
@@ -492,11 +496,11 @@ def insert_holds_on_reservation(
         print("len-xlsaref:", len(xlsaref))
 
     # clean before is the day before they shos
-    clean_before_start = rec["First Night"] - ADD_ONE_DAY
-    clean_before_end = rec["First Night"]
+    clean_before_start = rec[FIRST_NIGHT_FLD] - ADD_ONE_DAY
+    clean_before_end = rec[FIRST_NIGHT_FLD]
 
-    clean_after_start = rec["Checkout Day"]
-    clean_after_end = rec["Checkout Day"] + ADD_ONE_DAY
+    clean_after_start = rec[CHECKOUT_FLD]
+    clean_after_end = rec[CHECKOUT_FLD] + ADD_ONE_DAY
 
     # calculate the date prior to the reservation
     #    hold_start = rec['First Night'] - ADD_ONE_DAY
@@ -507,19 +511,19 @@ def insert_holds_on_reservation(
     post_rec = xlsaref[recidx + 1] if len(xlsaref) > recidx + 1 else {}
 
     # create the default hold/cleaning reocrd that we will adjust
-    hldrecin["Type"] = "Hold - Clean"
-    hldrecin["Nights"] = 1
+    hldrecin[TYPE_FLD] = "Hold - Clean"
+    hldrecin[NIGHTS_FLD] = 1
     hldrecin["Source"] = "MS-Add"
     #    hldrecin['Managing'] = 'MS' # removed 2023-01-21
-    hldrecin["First Night"] = clean_before_start
-    hldrecin["Checkout Day"] = clean_before_end
+    hldrecin[FIRST_NIGHT_FLD] = clean_before_start
+    hldrecin[CHECKOUT_FLD] = clean_before_end
 
-    hldrecout["Type"] = "Hold - Clean"
-    hldrecout["Nights"] = 1
+    hldrecout[TYPE_FLD] = "Hold - Clean"
+    hldrecout[NIGHTS_FLD] = 1
     hldrecout["Source"] = "MS-Add"
     #    hldrecout['Managing'] = 'MS' # removed 2023-01-21
-    hldrecout["First Night"] = clean_after_start
-    hldrecout["Checkout Day"] = clean_after_end
+    hldrecout[FIRST_NIGHT_FLD] = clean_after_start
+    hldrecout[CHECKOUT_FLD] = clean_after_end
 
     if debug:
         logger.warning("Clean_before_start: %s", clean_before_start)
@@ -535,10 +539,10 @@ def insert_holds_on_reservation(
     if prior_booking_code in ("CLN", "HLD"):
         # 1 record earlier is a cleaning reocrd - see if it is close enough
         if (
-            prior_rec.get("First Night") <= clean_before_end
-            and prior_rec.get("First Night") > clean_before_end - ADD_TWO_WEEK
+            prior_rec.get(FIRST_NIGHT_FLD) <= clean_before_end
+            and prior_rec.get(FIRST_NIGHT_FLD) > clean_before_end - ADD_TWO_WEEK
         ):
-            if prior_rec.get("Checkout Day") <= clean_before_end:
+            if prior_rec.get(CHECKOUT_FLD) <= clean_before_end:
                 logger.info(
                     "Prior record works as a cleaning day: %s",
                     {
@@ -571,15 +575,15 @@ def insert_holds_on_reservation(
 
     else:
         # this is a reservation before
-        if prior_rec.get("Checkout Day") == clean_before_end:
+        if prior_rec.get(CHECKOUT_FLD) == clean_before_end:
             if False:
                 logger.info("PRE same day hldrecin: %s", pp.pformat(hldrecin))
                 logger.info("Rec: %s", rec)
                 sys.exit()
 
             # we need to do a same day cleaning
-            hldrecin["Nights"] = 0
-            hldrecin["First Night"] = clean_before_end
+            hldrecin[NIGHTS_FLD] = 0
+            hldrecin[FIRST_NIGHT_FLD] = clean_before_end
         else:
             logger.warning("using standard hold on complete")
             # else - we just use what was calculated
@@ -612,8 +616,8 @@ def insert_holds_on_reservation(
         # record after this record is a cleaning record
         # see if it is close enough that we don't need another one
         if (
-            post_rec.get("First Night") >= clean_after_start
-            and post_rec.get("First Night") <= clean_after_start + ADD_ONE_WEEK
+            post_rec.get(FIRST_NIGHT_FLD) >= clean_after_start
+            and post_rec.get(FIRST_NIGHT_FLD) <= clean_after_start + ADD_ONE_WEEK
         ):
             logger.info(
                 "Post record works as a cleaning day: %s",
@@ -633,7 +637,7 @@ def insert_holds_on_reservation(
 
     else:
         # this is a reservation after
-        if post_rec.get("First Night") == clean_after_start:
+        if post_rec.get(FIRST_NIGHT_FLD) == clean_after_start:
             if False:
                 logger.info("Post same day hldrecin: %s", pp.pformat(hldrecin))
                 logger.info("Post same day hldrecout: %s", pp.pformat(hldrecout))
@@ -641,8 +645,8 @@ def insert_holds_on_reservation(
                 sys.exit()
 
             # we need to do a same day cleaning
-            hldrecout["Nights"] = 0
-            hldrecout["Checkout Day"] = clean_after_start
+            hldrecout[NIGHTS_FLD] = 0
+            hldrecout[CHECKOUT_FLD] = clean_after_start
         else:
             logger.warning("using standard hold on complete")
             # else - we just use what was calculated
@@ -707,7 +711,7 @@ def update_xlsaref_records(xlsaref: list[dict]) -> list[dict]:
 
     # add the new records into xlsaref and then sort them
     xlsaref.extend(new_holds)
-    xlsaref = sorted(xlsaref, key=itemgetter("First Night", "Checkout Day"))
+    xlsaref = sorted(xlsaref, key=itemgetter(FIRST_NIGHT_FLD, CHECKOUT_FLD))
 
     # DEBUGGING
     if debug:
