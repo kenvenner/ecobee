@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version: 1.100
+@version: 1.101
 
 Library of tools used in general by KV
 """
@@ -38,8 +38,8 @@ debug_file = False
 logger = logging.getLogger(__name__)
 
 # set the module version number
-AppVersion = "1.100"
-__version__ = "1.100"
+AppVersion = "1.101"
+__version__ = "1.101"
 HELP_KEYS = (
     "help",
     "helpall",
@@ -53,7 +53,7 @@ HELP_VALUE_TABLE = (
 
 
 # 2024-01-02;kv implemented function locally as routine was deprecated
-def strtobool(val: str) -> bool | int:
+def strtobool(val: Any) -> Any:
     """
     Convert a string representation of truth to true (1) or false (0).
 
@@ -138,7 +138,7 @@ def kv_parse_command_line(
     optiondictconfig: dict,
     raise_error: bool = False,
     keymapdict: dict | None = None,
-    cmdlineargs: list | None = None,
+    cmdlineargs: dict | None = None,
     skipcmdlineargs: bool = False,
     disp_msg: bool = False,
     debug: bool = False,
@@ -152,7 +152,7 @@ def kv_parse_command_line(
         raise_error - bool - when enabled, we will raise error when we have issues with processing data
         keymapdict - dict - mapping of mistaken keys mapped to the proper key value they should be, this enables
                             people to have multiple keywords map to one action and capture typos and misentered keys
-        cmdlineargs - list - defined list of key/values that will be treated as though they came from the argv command line
+        cmdlineargs - dict - defined key/values that will be treated as though they came from the argv command line
         skipcmdlineargs - bool - when enabled, we will not read in/process command line arguements
         disp_msg - bool - when enabled - we let the print statements output - used for inline debugging
         debug - bool - when enabled, we execute debugging logic
@@ -402,6 +402,7 @@ def kv_parse_command_line(
         print("cmdlineargs:", cmdlineargs)
         print("confargs:", confargs)
         print("optiondictconfig:", optiondictconfig)
+    # step through each of hte configuratoin dictionaries
     for idx, cfg in enumerate([cmdlineargs, confargs, optiondictconfig]):
         for val in all_notall.keys():
             if disp_msg:
@@ -1123,7 +1124,9 @@ def filename_maxmin(
     # if we got no files - return none
     if not filelist:
         logger.debug("Return none")
-        return None
+        return ''
+        # eliminted returning none 2026-04-19
+        # return None
     # if exclude in name filter the list down
     if exclude_in_name:
         if type(exclude_in_name) is str:
@@ -1192,7 +1195,10 @@ def filename_create(
             filename, path_blank=path_blank
         )
     else:
-        file_path = base_filename = file_ext = ""
+        file_path = ""
+        base_filename = ""
+        file_ext = ""
+
     if filename_ext:
         file_ext = filename_ext
     if file_ext and file_ext[:1] != ".":
@@ -1248,14 +1254,14 @@ def filename_splitall(path: str) -> list[str]:
 
 
 def filename_list(
-    filename: str | None = None,
-    filenamelist: str | None = None,
+    filename: str | list | None = None,
+    filenamelist: list | None = None,
     fileglob: str | None = None,
-    strippath: str | None = False,
+    strippath: bool = False,
     includelist_filename: str | None = None,
     excludefilenamelist: list | None = None,
     excludelist_filename: str | None = None,
-    glob_filename: str | None = None,
+    glob_filename: bool | None = None,
 ) -> list:
     """
     create a list of filenames given a name, a list of names, file glob,
@@ -1308,7 +1314,7 @@ def filename_list(
 
 
 def filename_proper(
-    filename_full: str,
+    filename_full: str | os.PathLike,
     file_dir: str | None = None,
     create_dir: bool = False,
     write_check: bool = False,
@@ -1694,7 +1700,7 @@ def functionName(callBackNumber=1):
     return sys._getframe(callBackNumber).f_code.co_name
 
 
-def loggingAppStart(logger, optiondict: dict, pgm: str = None) -> None:
+def loggingAppStart(logger, optiondict: dict, pgm: str | None = None) -> None:
     """
     create the starting logger header that we want to show the separation
     between runs - this utility is just to enable logging standardization.
@@ -1888,7 +1894,7 @@ def set_blank_field_values(src_data: list[dict], set_blank_fields: dict) -> int:
 
 
 def convert_hyperlink_field_values(
-    src_data: list[dict], hyperlink_fields: list
+    src_data: list[dict], hyperlink_fields: list | None = None
 ) -> int:
     """
     for a list of records and a dictionary with defaults - set columns if blank
@@ -1903,6 +1909,8 @@ def convert_hyperlink_field_values(
     returns:  # of records updated
     """
     records_updated = 0
+    if hyperlink_fields is None:
+        return records_updated
     for rec in src_data:
         record_updated = False
         for fld in hyperlink_fields:
@@ -1920,7 +1928,7 @@ def convert_hyperlink_field_values(
 def create_multi_key_lookup(
     src_data: list[dict],
     fldlist: list,
-    copy_fields: list = None,
+    copy_fields: list | None = None,
     disp_msg: bool = True,
 ) -> dict:
     """
@@ -2257,7 +2265,7 @@ def diff_matched_data(
 
 def extract_unmatched_data(
     src_data: list[dict], dst_lookup: dict, key_fields: list
-):
+) -> list:
     """
     return the list of records in src_data that are no longer in dst_lookup
     """
@@ -2322,7 +2330,7 @@ def disp_dict_on_key_idx(
 
 
 def disp_dict_on_key_value(
-    disp_dict: dict, thekey: any, disp_dict_name: str | None = None
+    disp_dict: dict, thekey: Any, disp_dict_name: str | None = None
 ):
     """
     display the dict record based on the value of a key

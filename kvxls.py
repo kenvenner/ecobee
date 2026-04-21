@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version: 1.42
+@version: 1.43
 
 Library of tools used to process XLS/XLSX files
 """
@@ -34,7 +34,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # global variables
-AppVersion = "1.42"
+AppVersion = "1.43"
 
 # set to true in kvxlsx.py
 XLSXONLY = False
@@ -338,7 +338,7 @@ def _extract_excel_row_into_list(
     colstart: int,
     colmax: int,
     debug: bool = False,
-) -> tuple[List[Any | None], int, int]:
+) -> tuple[List[Any | None], int | None, int | None]:
     """
     Extract a row from an Excel object defined by s
     and pass back a list of these values
@@ -484,7 +484,7 @@ def setExcelCellValue(
 # routine to get a cell fill pattern - returns the (rgb, solid) values
 def getExcelCellFont(
     excel_dict: dict, row: int, col_name: str, debug: bool = False
-) -> tuple[str | None, str | None, str | None, str | None]:
+) -> tuple[Any, Any, Any, Any, Any, Any, Any]:
     """
     For a defined row number and a column name string, get the cell_font information for that cell
 
@@ -697,7 +697,10 @@ def setExcelCellFont(
 
 
 def getExcelCellPatternFill(
-    excel_dict: dict, row: int, col_name: str, debug: bool = False
+        excel_dict: dict,
+        row: int,
+        col_name: str,
+        debug: bool = False
 ) -> tuple[str | None, str | None, str | None, str | None, str | None]:
     """
     For a defined row number and a column name string, get the cell_font information for that cell
@@ -1641,7 +1644,7 @@ def readxls_excelDict(
     col_aref: list[str] | None = None,
     data_only: bool = True,
     debug: bool = False,
-) -> dict[str, list[str]]:
+) -> dict:
     """
     Open the excel file and prepare for doing other work, create an excel object to be used for future work
 
@@ -2973,7 +2976,7 @@ def excelDict2list_findheader(
             # put in the column formatting here
             if save_colfmt:
                 # grab the pattern
-                cell_color, cell_fill_type, cell_start_color, cell_end_color = (
+                cell_color, cell_fill_type, cell_start_color, cell_end_color, cell_fill = (
                     getExcelCellPatternFill(
                         excel_dict, row, save_colfmt, debug=debug
                     )

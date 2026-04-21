@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.29
+@version: 1.30
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -9,7 +9,6 @@ output file that has an entry per day of stay and stay type
 """
 
 import pprint
-pp = pprint.PrettyPrinter(indent=4)
 
 # we are reusing features from another applicatoin but we wnat
 # the log files to be tied to this applicatoin - so we call tihs
@@ -28,7 +27,6 @@ import shutil
 import datetime
 import sys
 
-import pool
 import poolfile
 
 # for sorting a list of dicts
@@ -36,15 +34,144 @@ from operator import itemgetter
 
 # working with Excel files
 import openpyxl
-from openpyxl.styles import PatternFill, Border, Side, Alignment, Protection, Font
+from openpyxl.styles import Alignment, Font
 from openpyxl.styles import numbers
 from openpyxl.utils import get_column_letter
 
+import kvlogger
+
+# --------------------------------------------------------------------------------
+
+### GLOBAL VARIABLES ####
+
+pp = pprint.PrettyPrinter(indent=4)
+
 # Excel formatting strings
-bold = Font(bold=True, name="Arial", size=10)
-regular = Font(name="Arial", size=10)
-fit_centered = Alignment(shrink_to_fit=True, horizontal="center")
-fit = Alignment(shrink_to_fit=True)
+EXCEL_FMT_BOLD = Font(bold=True, name="Arial", size=10)
+EXCEL_FMT_REGULAR = Font(name="Arial", size=10)
+EXCEL_FMT_FIT_CENTERED = Alignment(shrink_to_fit=True, horizontal="center")
+EXCEL_FMT_FIT = Alignment(shrink_to_fit=True)
+
+
+# date information
+ADD_ONE_DAY = datetime.timedelta(days=1)
+ADD_ONE_WEEK = datetime.timedelta(days=7)
+ADD_TWO_WEEK = datetime.timedelta(days=14)
+DATE_FMT = "%m/%d/%Y"
+
+# xls file occtype conversion to
+# an array that is:  new code and # of days to add to stay for temp control
+OCC_TYPE_CONV = {
+    "Friends": ["R", 1],
+    "Hold": ["R", 1],
+    "Hold - Clean": ["C", 0],
+    "Hold - Construction": ["O", 1],
+    "Hold - Fall Mbr Event": ["O", 1],
+    "Hold - Harvest Party": ["O", 1],
+    "Hold - Maint": ["M", 0],
+    "Hold - Maint.": ["M", 0],
+    "Hold - Other": ["M", 0],
+    "Hold - Owner Scribner": ["O", 1],
+    "Hold - Owner": ["O", 1],
+    "Hold - Release Party": ["O", 1],
+    "Hold - Renter": ["R", 1],
+    "Hold - Scribner": ["O", 1],
+    "Hold - Venner": ["O", 1],
+    "Hold - Winery Business": ["O", 0],
+    "Hold- Mainten": ["M", 0],
+    "Hold-Deep Clean": ["M", 0],
+    "Hold-Owner": ["O", 1],
+    "Hold-Renter": ["R", 1],
+    "Karli Vendor Tour": ["O", 1],
+    "Owners Hold - Harvest": ["O", 1],
+    "Owners Hold - Venner": ["O", 1],
+    "Owners Hold - Scribner": ["O", 1],
+    "Owners Hold": ["O", 1],
+    "Owners Hold- Venner": ["O", 1],
+    "Res - Auteur": ["O", 1],
+    "Res - Owner": ["O", 1],
+    "Res - Renter": ["R", 1],
+    "Res- Renter": ["R", 1],
+    "Res-Renter": ["R", 1],
+    "Res. - Owner": ["O", 1],
+    "Res. - Renter": ["R", 1],
+    "Rest - Renter": ["R", 1],
+    "Res.-Owner": ["O", 1],
+    "Res.-Renter": ["R", 1],
+    "TA/Villa Specalist": ["R", 1],
+    "VRBO/Repeat guest": ["R", 1],
+}
+
+OCC_TYPE_2_BOOKING_CODE = {
+    "O": "OWN",
+    "R": "MLS",
+    "C": "CLN",
+    "M": "MSM",
+}
+
+# field that holds the booking ids
+BOOKING_FLD = "Booking"
+REVPERDAY_FLD = "RevPerDay"
+REVTOTAL_FLD = "Rent"
+STAYS_FLD = "Nights"
+POOL_FLD = "PoolEnabled"
+
+
+# xls header definition
+COL_REQUIRED = [
+    BOOKING_FLD,
+    "First Night",
+    "Checkout Day",
+    STAYS_FLD,
+    "Type",
+    REVTOTAL_FLD,
+    "Source",
+    "HoldUntil",
+]
+
+# old fields
+OLD_FIELDS = [
+    "Managing",
+    "Confirmed",
+    "BookedOn",
+]
+
+COL_CENTERED = ["Nights", "Source", "Managing", "Confirmed"]
+
+COL_NUMBER_FLDS = ["Rent"]
+
+COL_WIDTH = {
+    BOOKING_FLD: 12,
+    "First Night": 12,
+    "Checkout Day": 15,
+    "Type": 17,
+    REVTOTAL_FLD: 12,
+    "Source": 17,
+    "Managing": 15,
+    "Confirmed": 12,
+    "BookedOn": 12,
+    "HoldUntil": 12,
+    REVPERDAY_FLD: 12,
+}
+
+MON_STRING = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+]
+
+SHEET_LISTING = "Listing"
+
+# -------------------------------------------------------------------------------
 
 # this utility is used to convert the Beautiful Places Villa bookings XLS
 # file into the flattened text file used by the "villaecobee.py" file
@@ -54,209 +181,114 @@ fit = Alignment(shrink_to_fit=True)
 # 2) save it to the directory/filename where this tool is stored
 # 3) run this tool:  python vcconvert.py
 
-
-import kvlogger
-config=kvlogger.get_config(kvutil.filename_create(__file__, filename_ext='log', path_blank=True), loggerlevel='INFO') #single file
+# LOGGER
+config = kvlogger.get_config(
+    kvutil.filename_create(__file__, filename_ext="log", path_blank=True),
+    loggerlevel="INFO",
+)  # single file
 kvlogger.dictConfig(config)
-logger=kvlogger.getLogger(__name__)
+logger = kvlogger.getLogger(__name__)
+
 
 # application variables
 optiondictconfig = {
-    'AppVersion': {
-        'value': '1.29',
-        'description': 'defines the version number for the app',
+    "AppVersion": {
+        "value": "1.30",
+        "description": "defines the version number for the app",
     },
-    'debug': {
-        'value': False,
-        'type': 'bool',
-        'description': 'defines if we are running in debug mode',
+    "debug": {
+        "value": False,
+        "type": "bool",
+        "description": "defines if we are running in debug mode",
     },
-    'verbose': {
-        'value': 1,
-        'type': 'int',
-        'description': 'defines the display level for print messages',
+    "verbose": {
+        "value": 1,
+        "type": "int",
+        "description": "defines the display level for print messages",
     },
-    'xls_filename': {
-        'value': 'Attune_Estate_2026_Bookings.xlsx',
-        'description': 'defines the name of the BP xls filename',
+    "xls_filename": {
+        "value": "Attune_Estate_2026_Bookings.xlsx",
+        "description": "defines the name of the BP xls filename",
     },
-    'occupy_alt_dir': {
-        'value': 'g:/My Drive/VillaRaspi/',
-        'description': 'defines the directory where we put a copy of occupy_filename',
+    "occupy_alt_dir": {
+        "value": "g:/My Drive/VillaRaspi/",
+        "description": "defines the directory where we put a copy of occupy_filename",
     },
-    'occupy_filename': {
-        'value': 'stays.txt',
-        'description': 'defines the name of the file holding the villa occupancy',
+    "occupy_filename": {
+        "value": "stays.txt",
+        "description": "defines the name of the file holding the villa occupancy",
     },
-    'pool_heater_allowed_alt_dir': {
-        'value': 'g:/My Drive/VillaRaspi/pool_heater_allowed/',
-        'description': 'defines the directory where we put a copy of pool_heater_allowed_filename'
+    "pool_heater_allowed_alt_dir": {
+        "value": "g:/My Drive/VillaRaspi/pool_heater_allowed/",
+        "description": "defines the directory where we put a copy of pool_heater_allowed_filename",
     },
-    'pool_heater_allowed_filename': {
-        'value': 'pool_heater_allowed.txt',
-        'description': 'defines the name of the file holding the days the pool heater is allowed',
+    "pool_heater_allowed_filename": {
+        "value": "pool_heater_allowed.txt",
+        "description": "defines the name of the file holding the days the pool heater is allowed",
     },
-    'occupy_history_filename': {
-        'value': 'stays_history.txt',
-        'description': 'defines the name of the file holding the historical villa occupancy',
+    "occupy_history_filename": {
+        "value": "stays_history.txt",
+        "description": "defines the name of the file holding the historical villa occupancy",
     },
-    'xlsdateflds': {
-        'value': ['First Night', 'Checkout Day', 'BookedOn', 'HoldUntil'],
-        'type': 'liststr',
-        'description': 'defines the list of date fields inside the xls',
+    "xlsdateflds": {
+        "value": ["First Night", "Checkout Day", "BookedOn", "HoldUntil"],
+        "type": "liststr",
+        "description": "defines the list of date fields inside the xls",
     },
-    'fldFirstNight': {
-        'value': 'First Night',
-        'description': 'defines the name of the field holding the first night date',
+    "fld_first_night": {
+        "value": "First Night",
+        "description": "defines the name of the field holding the first night date",
     },
-    'fldNights': {
-        'value': 'Nights',
-        'description': 'defines the name of the field holding the int of nights stay',
+    "fld_nights": {
+        "value": "Nights",
+        "description": "defines the name of the field holding the int of nights stay",
     },
-    'fldLastNight': {
-        'value': 'Checkout Day',
-        'description': 'defines the name of the field holding the first night date',
+    "fld_last_night": {
+        "value": "Checkout Day",
+        "description": "defines the name of the field holding the first night date",
     },
-    'fldType': {
-        'value': 'Type',
-        'description': 'defines the name of the field holding the type of the stay',
+    "fld_type": {
+        "value": "Type",
+        "description": "defines the name of the field holding the type of the stay",
     },
-    'fldDate': {
-        'value': 'date',
-        'description': 'defines the name of the field that holds the date in the occupancy file',
+    "fld_date": {
+        "value": "date",
+        "description": "defines the name of the field that holds the date in the occupancy file",
     },
-    'calendarsync': {
-        'type': 'bool',
-        'value': True,
-        'description': 'defines if we are going to sync XLS data with calendar',
+    "calendarsync": {
+        "type": "bool",
+        "value": True,
+        "description": "defines if we are going to sync XLS data with calendar",
     },
-    'startback': {
-        'type': 'int',
-        'description': 'defines number of days added to today that we update the calendar (negative numbers are in the past)',
+    "startback": {
+        "type": "int",
+        "description": "defines number of days added to today that we update the calendar (negative numbers are in the past)",
     },
-    'startdate': {
-        'value': None,
-        'type': 'date',
-        'description': 'defines the start date, use this field or startback field to change the startdate',
+    "startdate": {
+        "value": None,
+        "type": "date",
+        "description": "defines the start date, use this field or startback field to change the startdate",
     },
 }
 
-### GLOBAL VARIABLES ####
-
-# date information
-ADD_ONE_DAY = datetime.timedelta(days=1)
-ADD_ONE_WEEK = datetime.timedelta(days=7)
-ADD_TWO_WEEK = datetime.timedelta(days=14)
-DATE_FMT = '%m/%d/%Y'
-
-# xls file occtype conversion to
-# an array that is:  new code and # of days to add to stay for temp control
-OCC_TYPE_CONV = {
-    'Friends': ['R', 1],
-    'Hold': ['R', 1],
-    'Hold - Clean': ['C', 0],
-    'Hold - Construction': ['O', 1],
-    'Hold - Fall Mbr Event': ['O', 1],
-    'Hold - Harvest Party': ['O', 1],
-    'Hold - Maint': ['M', 0],
-    'Hold - Maint.': ['M', 0],
-    'Hold - Other': ['M', 0],
-    'Hold - Owner Scribner': ['O', 1],
-    'Hold - Owner': ['O', 1],
-    'Hold - Release Party': ['O', 1],
-    'Hold - Renter': ['R', 1],
-    'Hold - Scribner': ['O', 1],
-    'Hold - Venner': ['O', 1],
-    'Hold - Winery Business': ['O', 0],
-    'Hold- Mainten': ['M', 0],
-    'Hold-Deep Clean': ['M', 0],
-    'Hold-Owner': ['O', 1],
-    'Hold-Renter': ['R', 1],
-    'Karli Vendor Tour': ['O', 1],
-    'Owners Hold - Harvest': ['O', 1],
-    'Owners Hold - Venner': ['O', 1],
-    'Owners Hold - Scribner': ['O', 1],
-    'Owners Hold': ['O', 1],
-    'Owners Hold- Venner': ['O', 1],
-    'Res - Auteur': ['O', 1],
-    'Res - Owner': ['O', 1],
-    'Res - Renter': ['R', 1],
-    'Res- Renter': ['R', 1],
-    'Res-Renter': ['R', 1],
-    'Res. - Owner': ['O', 1],
-    'Res. - Renter': ['R', 1],
-    'Rest - Renter': ['R', 1],
-    'Res.-Owner': ['O', 1],
-    'Res.-Renter': ['R', 1],
-    'TA/Villa Specalist': ['R', 1],
-    'VRBO/Repeat guest': ['R',1],
-
-}
-
-OCC_TYPE_2_BOOKING_CODE = {
-    'O': 'OWN',
-    'R': 'MLS',
-    'C': 'CLN',
-    'M': 'MSM',
-}
-
-# field that holds the booking ids
-BOOKING_FLD = 'Booking'
-REVPERDAY_FLD = "RevPerDay"
-REVTOTAL_FLD = 'Rent'
-STAYS_FLD = 'Nights'
-POOL_FLD = 'PoolEnabled'
+# --------------------------------------------------------------------------------
 
 
-# xls header definition
-COL_REQUIRED = [
-    BOOKING_FLD,
-    'First Night',
-    'Checkout Day',
-    STAYS_FLD,
-    'Type',
-    REVTOTAL_FLD,
-    'Source',
-    'HoldUntil']
-
-# old fields
-OLD_FIELDS = [
-    'Managing',
-    'Confirmed',
-    'BookedOn',
-]
-
-COL_CENTERED = ['Nights', 'Source', 'Managing', 'Confirmed']
-
-COL_NUMBER_FLDS = ['Rent']
-
-COL_WIDTH = {
-    BOOKING_FLD: 12,
-    'First Night': 12,
-    'Checkout Day': 15,
-    'Type': 17,
-    REVTOTAL_FLD: 12,
-    'Source': 17,
-    'Managing': 15,
-    'Confirmed': 12,
-    'BookedOn': 12,
-    'HoldUntil': 12,
-    REVPERDAY_FLD: 12,
-}
-
-MON_STRING = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-SHEET_LISTING = 'Listing'
-
-def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldType):
+def validate_res_records(
+    xlsaref: list[dict],
+    fld_first_night: str,
+    fld_nights: str,
+    fld_last_night: str,
+    fld_type: str,
+) -> list:
     """
     Step through each record and make sure the record is considered valid or generate an error mesage
 
     :param xlsaref: (list of dicts) recodrds from that file from sheet "Listing"
-    :param fldFirstNight: (str) column header of the first night date column
-    :param fldNights: (str) column header for the field holding the int # of nights
-    :param fldLastNight: (str) column header of the last night date column
-    :param fldType: (str) column header of the reservation type column
+    :param fld_first_night: (str) column header of the first night date column
+    :param fld_nights: (str) column header for the field holding the int # of nights
+    :param fld_last_night: (str) column header of the last night date column
+    :param fld_type: (str) column header of the reservation type column
 
     :return errors: (list) - list of errors we found
     """
@@ -265,77 +297,107 @@ def validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldTyp
     for recidx, rec in enumerate(xlsaref):
         date_error = False
         # date fields are dates
-        for fld in (fldFirstNight, fldLastNight):
+        for fld in (fld_first_night, fld_last_night):
             if not isinstance(rec[fld], datetime.datetime):
                 date_error = True
-                errors.append('Field [{}] not of type datetime - row [{}]:\n{}\n'.format(fld,
-                                                                                    rec[kvxls.FLD_XLSROW_ABS],
-                                                                                    {'recidx': recidx,
-                                                                                     'type': type(rec[fldFirstNight]),
-                                                                                     'rec': rec}))
+                errors.append(
+                    "Field [{}] not of type datetime - row [{}]:\n{}\n".format(
+                        fld,
+                        rec[kvxls.FLD_XLSROW_ABS],
+                        {
+                            "recidx": recidx,
+                            "type": type(rec[fld_first_night]),
+                            "rec": rec,
+                        },
+                    )
+                )
 
         # if no errors - make sure the difference matches the set in XLSX
         if not date_error:
-            dt_diff = rec[fldLastNight] - rec[fldFirstNight]
-            num_nights = int(rec[fldNights])
+            dt_diff = rec[fld_last_night] - rec[fld_first_night]
+            num_nights = int(rec[fld_nights])
             if dt_diff.days != num_nights:
-                errors.append('Field [{}] not calc as date difference - row [{}]:\n{}\n'.format(fld,
-                                                                                           rec[kvxls.FLD_XLSROW_ABS],
-                                                                                           {'recidx': recidx,
-                                                                                            'dt_diff': dt_diff.days,
-                                                                                            'num_nights': num_nights,
-                                                                                            'rec': rec}))
-                
+                errors.append(
+                    "Field [{}] not calc as date difference - row [{}]:\n{}\n".format(
+                        fld,
+                        rec[kvxls.FLD_XLSROW_ABS],
+                        {
+                            "recidx": recidx,
+                            "dt_diff": dt_diff.days,
+                            "num_nights": num_nights,
+                            "rec": rec,
+                        },
+                    )
+                )
+
         # check the record / reservation type
-        if rec[fldType] not in OCC_TYPE_CONV:
-            errors.append('Field [{}] not in OCC_TYPE_CONV - row [{}]:\n{}\n'.format(fldType,
-                                                                                rec[kvxls.FLD_XLSROW_ABS],
-                                                                                {'recidx': recidx,
-                                                                                 'rec_fldtype': rec[fldType],
-                                                                                 'rec': rec,
-                                                                                 'OCC_TYPE_CONV': OCC_TYPE_CONV }))
+        if rec[fld_type] not in OCC_TYPE_CONV:
+            errors.append(
+                "Field [{}] not in OCC_TYPE_CONV - row [{}]:\n{}\n".format(
+                    fld_type,
+                    rec[kvxls.FLD_XLSROW_ABS],
+                    {
+                        "recidx": recidx,
+                        "rec_fld_type": rec[fld_type],
+                        "rec": rec,
+                        "OCC_TYPE_CONV": OCC_TYPE_CONV,
+                    },
+                )
+            )
             # check for unique booking
         if rec[BOOKING_FLD] is None:
             continue
         elif rec[BOOKING_FLD] in booking:
-            errors.append('Field [{}] booking already exists - row [{}]:\n{}\n'.format(fldType,
-                                                                                  rec[kvxls.FLD_XLSROW_ABS],
-                                                                                  {'recidx': recidx,
-                                                                                   'orig_recidx': booking[rec[BOOKING_FLD]]['recidx'],
-                                                                                   'booking': rec[BOOKING_FLD],
-                                                                                   'rec': rec}))
+            errors.append(
+                "Field [{}] booking already exists - row [{}]:\n{}\n".format(
+                    fld_type,
+                    rec[kvxls.FLD_XLSROW_ABS],
+                    {
+                        "recidx": recidx,
+                        "orig_recidx": booking[rec[BOOKING_FLD]]["recidx"],
+                        "booking": rec[BOOKING_FLD],
+                        "rec": rec,
+                    },
+                )
+            )
         else:
-            booking[rec[BOOKING_FLD]]=copy.deepcopy(rec)
-            booking[rec[BOOKING_FLD]]['recidx']=recidx
+            booking[rec[BOOKING_FLD]] = copy.deepcopy(rec)
+            booking[rec[BOOKING_FLD]]["recidx"] = recidx
 
-            
     # return errors found
     return errors
-            
-def filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights):
+
+
+def filtered_sorted_xlsaref(
+    xlsaref: list[dict], fld_first_night: str, fld_nights: str
+) -> list[dict]:
     """
     take in the list of dicts
     remove fields with fields not properly populated
-    sort the output by fldFirstNight
+    sort the output by fld_first_night
     return this list of dicts
 
     :param xlsaref: (list of dicts) recodrds from that file from sheet "Listing"
-    :param fldFirstNight: (str) column header of the first night date column
-    :param fldNights: (str) column header for the field holding the int # of nights
+    :param fld_first_night: (str) column header of the first night date column
+    :param fld_nights: (str) column header for the field holding the int # of nights
 
     :return xlsaref: (list of dicts) - filtered/sorted list of dicts
     """
 
     # find records where first date and number of nights are filled in
-    xlsaref = [x for x in xlsaref if x[fldFirstNight] and (x[fldNights] or x[fldNights] == 0)]
+    xlsaref = [
+        x
+        for x in xlsaref
+        if x[fld_first_night] and (x[fld_nights] or x[fld_nights] == 0)
+    ]
 
     # sort these records so they are in date order
-    xlsaref = sorted(xlsaref, key=itemgetter(fldFirstNight))
+    xlsaref = sorted(xlsaref, key=itemgetter(fld_first_night))
 
     return xlsaref
 
 
-def calc_revenue_per_day(xlsaref, fldNights):
+def calc_revenue_per_day(xlsaref: list[dict], fld_nights: str) -> None:
     """
     Calculate the revenue per day which is revenue/days
 
@@ -343,22 +405,25 @@ def calc_revenue_per_day(xlsaref, fldNights):
     :uses REVPERDAY_FLD: (str) - field where revenue per day is placed/saved to
 
     :param xlsaref: (list of dict) - the records from the xls
-    :param fldNights: (str) - field that houses the # of nights this record represents
+    :param fld_nights: (str) - field that houses the # of nights this record represents
 
     :returns - updated xlsaref with the revenue per day calculated
     """
     for rec in xlsaref:
-        if rec[fldNights] and rec[REVTOTAL_FLD]:
-            rec[REVPERDAY_FLD] = int(float(rec[REVTOTAL_FLD])/float(rec[fldNights])*100)/100
+        if rec[fld_nights] and rec[REVTOTAL_FLD]:
+            rec[REVPERDAY_FLD] = (
+                int(float(rec[REVTOTAL_FLD]) / float(rec[fld_nights]) * 100) / 100
+            )
         else:
             rec[REVPERDAY_FLD] = None
 
-def find_max_value_per_booking_code(xlsaref):
+
+def find_max_value_per_booking_code(xlsaref: list[dict]) -> dict:
     """
     step through the records and extract the code from alpha before "-" and then find the max value after that
 
     :param xlsaref: (list of dict) - the records from the xls
-    
+
     :return max_values: (dict) - keyed by the code with value of the max value
     """
     max_values = dict()
@@ -367,7 +432,7 @@ def find_max_value_per_booking_code(xlsaref):
         if not booking:
             # if not there or not populated skip
             continue
-        bk_code, bk_value = booking.split('-')
+        bk_code, bk_value = booking.split("-")
         bk_code = bk_code.upper()
         if bk_code not in max_values:
             max_values[bk_code] = bk_value
@@ -377,86 +442,89 @@ def find_max_value_per_booking_code(xlsaref):
     return max_values
 
 
-def assign_booking_code(rec, max_values):
+def assign_booking_code(rec: dict, max_values: dict) -> str:
     """
     using the type field - determine what code to use to populate the value
     use the max_values to find the next value - increment and assign
     and update max_values with the newly assigned value
 
     :param rec: (dict) a record of data
-    :param max_values: (dict) max value of each code type 
+    :param max_values: (dict) max value of each code type
 
     :updates rec: sets the BOOKING_FLD field with a value based on type and max_values
+
+    :returns booking_code: (str)
+
     """
-    booking_code = OCC_TYPE_2_BOOKING_CODE[OCC_TYPE_CONV[rec['Type']][0]]
+    booking_code = OCC_TYPE_2_BOOKING_CODE[OCC_TYPE_CONV[rec["Type"]][0]]
     if booking_code not in max_values:
         max_values[booking_code] = 0
     next_value = int(int(max_values[booking_code]) / 10 + 1) * 10
-    rec[BOOKING_FLD] = '{}-{:05d}'.format(booking_code, next_value)
+    rec[BOOKING_FLD] = "{}-{:05d}".format(booking_code, next_value)
     max_values[booking_code] = next_value
 
     return booking_code
 
 
-def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
+def insert_holds_on_reservation(
+    rec: dict, recidx: int, xlsaref: list, booking_code: str, max_values: dict
+) -> tuple[dict, dict]:
     """
     using the booking code - determine if the record prior was the hold associated with this record
     and if not - add the two hold records
 
     """
-    if booking_code[:3] not in ('MLS', 'OWN'):
+    if booking_code[:3] not in ("MLS", "OWN"):
         return {}, {}
 
     # create the variable
-    hldrecin = {k:'' for k in rec}
-    hldrecout = {k:'' for k in rec}
+    hldrecin = {k: "" for k in rec}
+    hldrecout = {k: "" for k in rec}
 
     debug = False
-    if rec[BOOKING_FLD] == 'MLS-00080' and False:
-        logger.warning('MLS-00080')
+    if rec[BOOKING_FLD] == "MLS-00080" and False:
+        logger.warning("MLS-00080")
         debug = True
 
     # DEBUGGING
     if debug:
-        print('recidx:', recidx)
-        print('len-xlsaref:', len(xlsaref))
+        print("recidx:", recidx)
+        print("len-xlsaref:", len(xlsaref))
 
     # clean before is the day before they shos
-    clean_before_start = rec['First Night'] - ADD_ONE_DAY
-    clean_before_end = rec['First Night']
+    clean_before_start = rec["First Night"] - ADD_ONE_DAY
+    clean_before_end = rec["First Night"]
 
-    clean_after_start = rec['Checkout Day']
-    clean_after_end = rec['Checkout Day'] + ADD_ONE_DAY
+    clean_after_start = rec["Checkout Day"]
+    clean_after_end = rec["Checkout Day"] + ADD_ONE_DAY
 
     # calculate the date prior to the reservation
-    hold_start = rec['First Night'] - ADD_ONE_DAY
-    hold_end = rec['Checkout Day'] + ADD_ONE_DAY
+    #    hold_start = rec['First Night'] - ADD_ONE_DAY
+    #    hold_end = rec['Checkout Day'] + ADD_ONE_DAY
 
-    
     # calc prior record - and if the record is the first record we don't have a prior record so set it empty
     prior_rec = xlsaref[recidx - 1] if recidx else {}
-    post_rec = xlsaref[recidx + 1] if len(xlsaref) > recidx+1 else {}
+    post_rec = xlsaref[recidx + 1] if len(xlsaref) > recidx + 1 else {}
 
     # create the default hold/cleaning reocrd that we will adjust
-    hldrecin['Type'] = 'Hold - Clean'
-    hldrecin['Nights'] = 1
-    hldrecin['Source'] = 'MS-Add'
-#    hldrecin['Managing'] = 'MS' # removed 2023-01-21
-    hldrecin['First Night'] = clean_before_start
-    hldrecin['Checkout Day'] = clean_before_end
+    hldrecin["Type"] = "Hold - Clean"
+    hldrecin["Nights"] = 1
+    hldrecin["Source"] = "MS-Add"
+    #    hldrecin['Managing'] = 'MS' # removed 2023-01-21
+    hldrecin["First Night"] = clean_before_start
+    hldrecin["Checkout Day"] = clean_before_end
 
-    hldrecout['Type'] = 'Hold - Clean'
-    hldrecout['Nights'] = 1
-    hldrecout['Source'] = 'MS-Add'
-#    hldrecout['Managing'] = 'MS' # removed 2023-01-21
-    hldrecout['First Night'] = clean_after_start
-    hldrecout['Checkout Day'] = clean_after_end
+    hldrecout["Type"] = "Hold - Clean"
+    hldrecout["Nights"] = 1
+    hldrecout["Source"] = "MS-Add"
+    #    hldrecout['Managing'] = 'MS' # removed 2023-01-21
+    hldrecout["First Night"] = clean_after_start
+    hldrecout["Checkout Day"] = clean_after_end
 
     if debug:
-        logger.warning('Clean_before_start: %s', clean_before_start)
-        logger.warning('Clean_before_end: %s', clean_before_end)
-        logger.warning('Must start later than: %s', clean_before_end - ADD_ONE_WEEK)
-
+        logger.warning("Clean_before_start: %s", clean_before_start)
+        logger.warning("Clean_before_end: %s", clean_before_end)
+        logger.warning("Must start later than: %s", clean_before_end - ADD_ONE_WEEK)
 
     # PRE #
     prior_booking_code = prior_rec.get(BOOKING_FLD)
@@ -466,79 +534,91 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
     # determine if we need a hold record - before this record
     if prior_booking_code in ("CLN", "HLD"):
         # 1 record earlier is a cleaning reocrd - see if it is close enough
-        if prior_rec.get('First Night') <= clean_before_end and \
-           prior_rec.get('First Night') > clean_before_end - ADD_TWO_WEEK:
-            if prior_rec.get('Checkout Day') <= clean_before_end:
-                logger.info('Prior record works as a cleaning day: %s',
-                            {'recidx': recidx,
-                             'prior_booking_code': prior_booking_code,
-                             'rec': rec})
+        if (
+            prior_rec.get("First Night") <= clean_before_end
+            and prior_rec.get("First Night") > clean_before_end - ADD_TWO_WEEK
+        ):
+            if prior_rec.get("Checkout Day") <= clean_before_end:
+                logger.info(
+                    "Prior record works as a cleaning day: %s",
+                    {
+                        "recidx": recidx,
+                        "prior_booking_code": prior_booking_code,
+                        "rec": rec,
+                    },
+                )
 
                 # clear the value - prior record is it
                 hldrecin = {}
             else:
                 # end date on cleaning does not work but start date does
-                logger.warning('Cleaning end record conflicts with appt: %s',
-                               {'recidx': recidx,
-                                'rec': rec,
-                                'error': 'please fix cleaning record'})
+                logger.warning(
+                    "Cleaning end record conflicts with appt: %s",
+                    {
+                        "recidx": recidx,
+                        "rec": rec,
+                        "error": "please fix cleaning record",
+                    },
+                )
                 sys.exit(1)
         else:
             # start date does not work on this so insert a new start date
 
             # set values on this record
             # - just use what was already calculdated - day before cleaning
-            logger.warning('using standard hold')
+            logger.warning("using standard hold")
             pass
-        
+
     else:
         # this is a reservation before
-        if prior_rec.get('Checkout Day') == clean_before_end:
+        if prior_rec.get("Checkout Day") == clean_before_end:
             if False:
-                logger.info('PRE same day hldrecin: %s', pp.pformat(hldrecin))
-                logger.info('Rec: %s', rec)
+                logger.info("PRE same day hldrecin: %s", pp.pformat(hldrecin))
+                logger.info("Rec: %s", rec)
                 sys.exit()
-            
+
             # we need to do a same day cleaning
-            hldrecin['Nights'] = 0
-            hldrecin['First Night'] = clean_before_end
+            hldrecin["Nights"] = 0
+            hldrecin["First Night"] = clean_before_end
         else:
-            logger.warning('using standard hold on complete')
+            logger.warning("using standard hold on complete")
             # else - we just use what was calculated
 
-
     if debug:
-        logger.warning('recidx: %s', recidx)
-        logger.warning('rec: \n%s', pp.pformat(rec))
-        logger.warning('prior rec: \n%s', pp.pformat(prior_rec))
-        logger.warning('hldrecin: \n%s', pp.pformat(hldrecin))
-
+        logger.warning("recidx: %s", recidx)
+        logger.warning("rec: \n%s", pp.pformat(rec))
+        logger.warning("prior rec: \n%s", pp.pformat(prior_rec))
+        logger.warning("hldrecin: \n%s", pp.pformat(hldrecin))
 
     # taken an action if we have a new record to create
     # 2024-02-07;kv - removed the insert/addition of this record
     if hldrecin or 0:
-        logger.warning('setting booking_code on new cleaning record for record: %s', recidx)
-        hold_booking_code = assign_booking_code(hldrecin, max_values)
+        logger.warning(
+            "setting booking_code on new cleaning record for record: %s", recidx
+        )
+    #        hold_booking_code = assign_booking_code(hldrecin, max_values)
     else:
-        logger.warning('get next record - nothing updated on this record: %s', recidx)
+        logger.warning("get next record - nothing updated on this record: %s", recidx)
 
     # ----------------------------------------
-    
+
     # POST #
     post_booking_code = post_rec.get(BOOKING_FLD)
     if post_booking_code:
         post_booking_code = post_booking_code[:3]
 
-    
     # determine if we need a hold record - before this record
     if post_booking_code in ("CLN", "HLD"):
         # record after this record is a cleaning record
         # see if it is close enough that we don't need another one
-        if post_rec.get('First Night') >= clean_after_start and \
-           post_rec.get('First Night') <= clean_after_start + ADD_ONE_WEEK:
-            logger.info('Post record works as a cleaning day: %s',
-                        {'recidx': recidx,
-                         'rec': rec})
+        if (
+            post_rec.get("First Night") >= clean_after_start
+            and post_rec.get("First Night") <= clean_after_start + ADD_ONE_WEEK
+        ):
+            logger.info(
+                "Post record works as a cleaning day: %s",
+                {"recidx": recidx, "rec": rec},
+            )
 
             # clear the value - prior record is it
             hldrecout = {}
@@ -548,40 +628,40 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
 
             # set values on this record
             # - just use what was already calculdated - day before cleaning
-            logger.warning('using standard post hold')
+            logger.warning("using standard post hold")
             pass
-        
+
     else:
         # this is a reservation after
-        if post_rec.get('First Night') == clean_after_start:
+        if post_rec.get("First Night") == clean_after_start:
             if False:
-                logger.info('Post same day hldrecin: %s', pp.pformat(hldrecin))
-                logger.info('Post same day hldrecout: %s', pp.pformat(hldrecout))
-                logger.info('Rec: %s', rec)
+                logger.info("Post same day hldrecin: %s", pp.pformat(hldrecin))
+                logger.info("Post same day hldrecout: %s", pp.pformat(hldrecout))
+                logger.info("Rec: %s", rec)
                 sys.exit()
-            
+
             # we need to do a same day cleaning
-            hldrecout['Nights'] = 0
-            hldrecout['Checkout Day'] = clean_after_start
+            hldrecout["Nights"] = 0
+            hldrecout["Checkout Day"] = clean_after_start
         else:
-            logger.warning('using standard hold on complete')
+            logger.warning("using standard hold on complete")
             # else - we just use what was calculated
 
-
     if debug:
-        logger.warning('recidx: %s', recidx)
-        logger.warning('rec: \n%s', pp.pformat(rec))
-        logger.warning('post rec: \n%s', pp.pformat(post_rec))
-        logger.warning('hldrecout: \n%s', pp.pformat(hldrecout))
-
+        logger.warning("recidx: %s", recidx)
+        logger.warning("rec: \n%s", pp.pformat(rec))
+        logger.warning("post rec: \n%s", pp.pformat(post_rec))
+        logger.warning("hldrecout: \n%s", pp.pformat(hldrecout))
 
     # taken an action if we have a new record to create
     # 2024-02-07;kv - removed the insert/addition of this record
     if hldrecout or 0:
-        logger.warning('setting booking_code on new cleaning record for record: %s', recidx)
-        hold_booking_code = assign_booking_code(hldrecout, max_values)
+        logger.warning(
+            "setting booking_code on new cleaning record for record: %s", recidx
+        )
+    #        hold_booking_code = assign_booking_code(hldrecout, max_values)
     else:
-        logger.warning('get next record - nothing updated on this record: %s', recidx)
+        logger.warning("get next record - nothing updated on this record: %s", recidx)
 
     if debug:
         sys.exit()
@@ -589,16 +669,14 @@ def insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values):
     return hldrecin, hldrecout
 
 
-def update_xlsaref_records(xlsaref):
-    # find the max value for each code
-    max_values = None
+def update_xlsaref_records(xlsaref: list[dict]) -> list[dict]:
 
-    # caputre new hold
+    # capture new hold
     new_holds = list()
-    
+
     # only calculate this if we need it
     max_values = find_max_value_per_booking_code(xlsaref)
-    
+
     # first sweep through and populated records with code
     for recidx, rec in enumerate(xlsaref):
         if not rec[BOOKING_FLD]:
@@ -606,11 +684,12 @@ def update_xlsaref_records(xlsaref):
         else:
             booking_code = rec[BOOKING_FLD]
 
-
         # remove the holds in and out 2024-02-07;kv
         if False:
             # check to see if we return a new value
-            newholdin, newholdout = insert_holds_on_reservation(rec, recidx, xlsaref, booking_code, max_values)
+            newholdin, newholdout = insert_holds_on_reservation(
+                rec, recidx, xlsaref, booking_code, max_values
+            )
             if newholdin:
                 new_holds.append(newholdin)
             if newholdout:
@@ -618,26 +697,33 @@ def update_xlsaref_records(xlsaref):
 
         # calculate the $/night
         if rec.get(REVTOTAL_FLD) and rec.get(STAYS_FLD):
-            rec[REVPERDAY_FLD] = float(rec.get(REVTOTAL_FLD))/float(rec[STAYS_FLD])
+            rec[REVPERDAY_FLD] = float(rec.get(REVTOTAL_FLD)) / float(rec[STAYS_FLD])
 
     # DEBUGGING
     if False:
-        logger.warning('new_holds: \n%s', pp.pformat(new_holds))
+        logger.warning("new_holds: \n%s", pp.pformat(new_holds))
         # logger.warning('xlsaref: \n%s', pp.pformat(xlsaref))
         sys.exit()
-        
+
     # add the new records into xlsaref and then sort them
     xlsaref.extend(new_holds)
-    xlsaref = sorted(xlsaref, key=itemgetter('First Night', 'Checkout Day'))
+    xlsaref = sorted(xlsaref, key=itemgetter("First Night", "Checkout Day"))
 
     # DEBUGGING
     if debug:
-        logger.warning('updated xlsaref: \n%s', pp.pformat(xlsaref))
+        logger.warning("updated xlsaref: \n%s", pp.pformat(xlsaref))
         sys.exit()
 
     return xlsaref
 
-def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
+
+def rewrite_file(
+    xlsfile: str,
+    xlsaref: list[dict],
+    fld_first_night: str,
+    fld_nights: str,
+    xlsdateflds: list,
+) -> tuple[str, list[dict]]:
     """
     Take a list of dicts defined in xlsaref
     Take the list, sort by start date and filter out blank records
@@ -650,37 +736,39 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
 
     :param xlsfile: (str) input filename
     :param xlsaref: (list of dicts) records read in from xlsfile from sheet "Listing"
-    :param fldFirstNight: (str) column header of the first night date column
-    :param fldNights: (str) column header for the field holding the int # of nights
+    :param fld_first_night: (str) column header of the first night date column
+    :param fld_nights: (str) column header for the field holding the int # of nights
     :param xlsdateflds: (list) of field names that are date fields
 
     :return bak_filename: (str) - filename we converted the input filename into
+    :return newxlsaref: (list of dicts)
+
     """
-    
+
     # Debugging
     if False:
-        header_keys = ['' if 'blank' in x else x for x in list(xlsaref[0].keys())]
+        header_keys = ["" if "blank" in x else x for x in list(xlsaref[0].keys())]
         dict_keys = [x for x in list(xlsaref[0].keys())]
-        print('header_keys:', header_keys)
-        print('dict_keys:', dict_keys)
-        print('xlsaref[0]:', xlsaref[0])
+        print("header_keys:", header_keys)
+        print("dict_keys:", dict_keys)
+        print("xlsaref[0]:", xlsaref[0])
         sys.exit()
 
     # move the file so we can output with the same filename
     fname, fext = os.path.splitext(xlsfile)
-    new_fname = fname + '.bak'
+    new_fname = fname + ".bak"
     if os.path.exists(new_fname):
         os.remove(new_fname)
-    #os.rename(xlsfile, new_fname)
+    # os.rename(xlsfile, new_fname)
     cmd = f'copy "{xlsfile}" "{new_fname}"'
     os.system(cmd)
-    
+
     # find records where first date and number of nights are filled in
     # sort these records so they are in date order
-    xlsaref = filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights)
+    xlsaref = filtered_sorted_xlsaref(xlsaref, fld_first_night, fld_nights)
 
     # calculate the revenue per sheet
-    calc_revenue_per_day(xlsaref, fldNights)
+    calc_revenue_per_day(xlsaref, fld_nights)
 
     # create workbook for output
     wb = openpyxl.Workbook()
@@ -690,18 +778,18 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
     ws.title = SHEET_LISTING
 
     # pull out the keys
-    header_keys = ['' if 'blank' in x else x for x in list(xlsaref[0].keys())]
+    header_keys = ["" if "blank" in x else x for x in list(xlsaref[0].keys())]
     dict_keys = [x for x in list(xlsaref[0].keys())]
 
     # build out the listing sheet
     # header
     for colidx, key in enumerate(header_keys, start=1):
         a1 = ws.cell(row=1, column=colidx, value=key)
-        a1.font = bold
+        a1.font = EXCEL_FMT_BOLD
         if key in COL_CENTERED:
-            a1.alignment = fit_centered
+            a1.alignment = EXCEL_FMT_FIT_CENTERED
         else:
-            a1.alignment = fit
+            a1.alignment = EXCEL_FMT_FIT
         if key in COL_WIDTH:
             ws.column_dimensions[get_column_letter(colidx)].width = COL_WIDTH[key]
 
@@ -711,11 +799,11 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
             if key not in rec:
                 continue
             a1 = ws.cell(row=recidx, column=colidx, value=rec[key])
-            a1.font = regular
+            a1.font = EXCEL_FMT_REGULAR
             if key in COL_CENTERED:
-                a1.alignment = fit_centered
+                a1.alignment = EXCEL_FMT_FIT_CENTERED
             else:
-                a1.alignment = fit
+                a1.alignment = EXCEL_FMT_FIT
             if key in xlsdateflds:
                 a1.number_format = "MM/DD/YYYY"
             if key in COL_NUMBER_FLDS:
@@ -728,26 +816,26 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
         # header
         for colidx, key in enumerate(header_keys, start=1):
             a1 = ws.cell(row=1, column=colidx, value=key)
-            a1.font = bold
+            a1.font = EXCEL_FMT_BOLD
             if key in COL_CENTERED:
-                a1.alignment = fit_centered
+                a1.alignment = EXCEL_FMT_FIT_CENTERED
             else:
-                a1.alignment = fit
+                a1.alignment = EXCEL_FMT_FIT
             if key in COL_WIDTH:
                 ws.column_dimensions[get_column_letter(colidx)].width = COL_WIDTH[key]
 
         # extract out data for this sheet
-        monaref = [x for x in xlsaref if x[fldFirstNight].month == mon]
+        monaref = [x for x in xlsaref if x[fld_first_night].month == mon]
 
         # data records
         for recidx, rec in enumerate(monaref, start=2):
             for colidx, key in enumerate(dict_keys, start=1):
                 a1 = ws.cell(row=recidx, column=colidx, value=rec[key])
-                a1.font = regular
+                a1.font = EXCEL_FMT_REGULAR
                 if key in COL_CENTERED:
-                    a1.alignment = fit_centered
+                    a1.alignment = EXCEL_FMT_FIT_CENTERED
                 else:
-                    a1.alignment = fit
+                    a1.alignment = EXCEL_FMT_FIT
                 if key in xlsdateflds:
                     a1.number_format = "MM/DD/YYYY"
 
@@ -756,19 +844,23 @@ def rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds):
     return new_fname, xlsaref
 
 
-def find_and_remove_dup_start_dates(xlsaref, fldFirstNight, fldNights):
+def find_and_remove_dup_start_dates(
+    xlsaref: list[dict], fld_first_night: str, fld_nights: str
+) -> tuple[list[dict], list]:
     overlap = list()
     new_xlsaref = list()
     max_start_nights = {}
     for rec in xlsaref:
-        if rec[fldFirstNight] in max_start_nights:
-            max_start_nights[rec[fldFirstNight]] = max(int(rec[fldNights]), max_start_nights[rec[fldFirstNight]])
-            overlap.append(rec[fldFirstNight])
+        if rec[fld_first_night] in max_start_nights:
+            max_start_nights[rec[fld_first_night]] = max(
+                int(rec[fld_nights]), max_start_nights[rec[fld_first_night]]
+            )
+            overlap.append(rec[fld_first_night])
         else:
-            max_start_nights[rec[fldFirstNight]] = int(rec[fldNights])
+            max_start_nights[rec[fld_first_night]] = int(rec[fld_nights])
 
     for rec in xlsaref:
-        if int(rec[fldNights]) == max_start_nights[rec[fldFirstNight]]:
+        if int(rec[fld_nights]) == max_start_nights[rec[fld_first_night]]:
             new_xlsaref.append(rec)
 
     return new_xlsaref, overlap
@@ -778,52 +870,68 @@ def find_and_remove_dup_start_dates(xlsaref, fldFirstNight, fldNights):
 # Global variables used:
 #    DATE_FMT - format string for the date string
 #    ADD_ONE_DAY - delta date value that adds one day
-#    OCC_TYPE_CONV - conversion of the occupytype 
+#    OCC_TYPE_CONV - conversion of the occupytype
 #
-def load_convert_save_file(xlsfile,
-                           req_cols,
-                           occupy_filename,
-                           fldFirstNight,
-                           fldNights,
-                           fldType,
-                           xlsdateflds,
-                           fldLastNight,
-                           pool_heater_allowed_filename,
-                           debug=False):
+def load_convert_save_file(
+    xlsfile: str,
+    req_cols: list,
+    occupy_filename: str,
+    fld_first_night: str,
+    fld_nights: str,
+    fld_type: str,
+    xlsdateflds: list,
+    fld_last_night: str,
+    pool_heater_allowed_filename: str,
+    debug: bool = False,
+) -> tuple[list[dict], str | None]:
     """
     Load convert and save the file - this is like a main_function()
 
     :param xlsfile: (str) - name of the source xlsx file
-    :req_cols: (list) - list of column headers we must find in this file
+    :param req_cols: (list) - list of column headers we must find in this file
     :param occupy_filename: (str) - name of the output file that houses the nights the villa is occupied
-    :param fldFirstNight: (str) - column header that captures the first night the villa is occupied (date field)
-    :param fldNights: (str) - column header that captures the number of nights the villa is occupied (int)
+    :param fld_first_night: (str) - column header that captures the first night the villa is occupied (date field)
+    :param fld_nights: (str) - column header that captures the number of nights the villa is occupied (int)
+    :param fld_type: (str)
     :param xlsdateflds: (list of str) - column headers that are date fields that must be converted
-    :param pool_allowed_heater_filename: (str) - name of the putput file that houses the days that pool ON is enabled
+    :param fld_last_night: (str)
+    :param pool_heater_allowed_filename: (str) - name of the putput file that houses the days that pool ON is enabled
     :param debug: (bool) - when set, we run in debug mode.
+
+    returns:
 
     """
     # logging
-    logger.info('Read in XLS:%s', xlsfile)
+    logger.info("Read in XLS:%s", xlsfile)
 
     # read in the XLS
-    xlsaref = kvxls.readxls2list_findheader(xlsfile, req_cols=req_cols,
-                                            optiondict={'dateflds': xlsdateflds, 'sheetname': 'Listing', 'save_row_abs': True}, debug=False)
+    xlsaref = kvxls.readxls2list_findheader(
+        xlsfile,
+        req_cols=req_cols,
+        optiondict={
+            "dateflds": xlsdateflds,
+            "sheetname": "Listing",
+            "save_row_abs": True,
+        },
+        debug=False,
+    )
 
     # debugging
     if debug:
-        print('xlsaref[0] read in:', xlsaref[0])
+        print("xlsaref[0] read in:", xlsaref[0])
 
     # validate the content and set the Booking field if needed
     # and insert records for cleaning if they are not in here.
-    xlsaref = filtered_sorted_xlsaref(xlsaref, fldFirstNight, fldNights)
+    xlsaref = filtered_sorted_xlsaref(xlsaref, fld_first_night, fld_nights)
 
     # debugging
     if debug:
-        print('xlsaref[0] filtered:', xlsaref[0])
+        print("xlsaref[0] filtered:", xlsaref[0])
 
     # validate records are right
-    errors = validate_res_records(xlsaref, fldFirstNight, fldNights, fldLastNight, fldType)
+    errors = validate_res_records(
+        xlsaref, fld_first_night, fld_nights, fld_last_night, fld_type
+    )
     if errors:
         for x in errors:
             print(x)
@@ -836,21 +944,27 @@ def load_convert_save_file(xlsfile,
     if False:
         pp.pprint(xlsaref)
         sys.exit(1)
-    
+
     # reformat the file and get back the filename of the original file renamed
     # and return the list of records sorted by firstNight
-    bak_fname, xlsaref = rewrite_file(xlsfile, xlsaref, fldFirstNight, fldNights, xlsdateflds)
+    bak_fname, xlsaref = rewrite_file(
+        xlsfile, xlsaref, fld_first_night, fld_nights, xlsdateflds
+    )
 
-    logger.info("Saved orig file, reformatted file: %s",
-                {'orig_file': xlsfile,
-                 'bak_file': bak_fname})
+    logger.info(
+        "Saved orig file, reformatted file: %s",
+        {"orig_file": xlsfile, "bak_file": bak_fname},
+    )
 
     # remove duplicates if any exist
-    xlsaref, overlap = find_and_remove_dup_start_dates(xlsaref, fldFirstNight, fldNights)
+    xlsaref, overlap = find_and_remove_dup_start_dates(
+        xlsaref, fld_first_night, fld_nights
+    )
 
     if overlap:
-        logger.warning('Multiple records with same start night: %s',
-                    {'overlap': overlap})
+        logger.warning(
+            "Multiple records with same start night: %s", {"overlap": overlap}
+        )
 
     # capture if the current renter is still there - their start date
     current_guest_start = None
@@ -860,15 +974,15 @@ def load_convert_save_file(xlsfile,
     yesterday = now - datetime.timedelta(days=1)
 
     # logging
-    logger.info('Create occupancy file:%s', occupy_filename)
+    logger.info("Create occupancy file:%s", occupy_filename)
 
     # capture the dates that we need to output
     pool_heater_allowed_dates = []
 
     # create the output file and start the conversion/output process
-    with open(occupy_filename, 'w') as t:
+    with open(occupy_filename, "w") as t:
         # create the header to the file
-        t.write('date,occtype\n')
+        t.write("date,occtype\n")
 
         # set the first exit date to something that will NOT match
         exitdate = datetime.datetime(2019, 1, 1)
@@ -879,61 +993,69 @@ def load_convert_save_file(xlsfile,
         # run through the records read in
         for rec in xlsaref:
             # process the record from the file - convert first night into a date variable
-            # eventdate = datetime.datetime.strptime(rec[fldFirstNight], DATE_FMT)
-            eventdate = rec[fldFirstNight]
+            # eventdate = datetime.datetime.strptime(rec[fld_first_night], DATE_FMT)
+            eventdate = rec[fld_first_night]
 
             # add to the dictionary the datetime value just calculated
-            rec['startdate'] = eventdate
+            rec["startdate"] = eventdate
 
             # for each night of stay - plus occ_type days to model the day the guest exits
-            for cnt in range(int(rec[fldNights]) + OCC_TYPE_CONV[rec[fldType]][1]):
+            for cnt in range(int(rec[fld_nights]) + OCC_TYPE_CONV[rec[fld_type]][1]):
                 # check to see if this date is pool heater enabled
                 if POOL_FLD in rec and rec[POOL_FLD]:
-                    if eventdate not in pool_heater_allowed_dates and eventdate >= yesterday:
+                    if (
+                        eventdate not in pool_heater_allowed_dates
+                        and eventdate >= yesterday
+                    ):
                         pool_heater_allowed_dates.append(eventdate)
 
                 # skip the date if this date matches the exit date of the prior
                 if eventdate == exitdate:
                     # skip the date if this date matches the exit date of the prior
-                    logger.info('Start date is same as the last guests exit date:skip record creation:%s', exitdate)
+                    logger.info(
+                        "Start date is same as the last guests exit date:skip record creation:%s",
+                        exitdate,
+                    )
                 else:
                     # convert the eventdate to a string
                     eventdate_str = datetime.datetime.strftime(eventdate, DATE_FMT)
                     # now make sure we have not already written this date
                     if eventdate_str not in already_written_date:
                         # output this value
-                        t.write('%s,%s\n' % (eventdate_str, OCC_TYPE_CONV[rec[fldType]][0]))
+                        t.write(
+                            "%s,%s\n" % (eventdate_str, OCC_TYPE_CONV[rec[fld_type]][0])
+                        )
                         # and add this date to the list of dates written
                         already_written_date.append(eventdate_str)
                     else:
-                        logger.warning('Skipped record as date already written: %s',
-                                       {'eventdate': eventdate,
-                                        'rec': rec})
+                        logger.warning(
+                            "Skipped record as date already written: %s",
+                            {"eventdate": eventdate, "rec": rec},
+                        )
 
                     # set the exit date to the last date written out
                     exitdate = eventdate
 
                 # capture the date prior to looping
-                rec['exitdate'] = exitdate
+                rec["exitdate"] = exitdate
 
                 # add one day to this date and loop
                 eventdate += ADD_ONE_DAY
 
             # capture current guest if it exists
-            if rec['startdate'] < now and rec['exitdate'] > now:
-                current_guest_start = rec['startdate']
-
+            if rec["startdate"] < now and rec["exitdate"] > now:
+                current_guest_start = rec["startdate"]
 
     # create a file pointer to open this desired file
     if True or pool_heater_allowed_dates:
         # dump records out
-        with open(pool_heater_allowed_filename, 'w') as phaf:
+        with open(pool_heater_allowed_filename, "w") as phaf:
             # output each date in the MM/DD/YYYY format
             for pool_date in pool_heater_allowed_dates:
-                phaf.write('%s\n' % (datetime.datetime.strftime(pool_date, DATE_FMT)))
+                phaf.write("%s\n" % (datetime.datetime.strftime(pool_date, DATE_FMT)))
 
-        logger.info('Create pool allowed file:%s', pool_heater_allowed_filename)
-    
+        logger.info("Create pool allowed file:%s", pool_heater_allowed_filename)
+
     # return the BP file with modifications
     return xlsaref, current_guest_start
 
@@ -941,19 +1063,28 @@ def load_convert_save_file(xlsfile,
 # routine that read in the history stays file and the current stays files and addes to
 # the history file any dates from the current stays file that are in the past
 #
-def migrate_stays_to_history(occupy_filename, occupy_history_filename, fldDate, debug=False):
+def migrate_stays_to_history(
+    occupy_filename: str,
+    occupy_history_filename: str,
+    fld_date: str,
+    debug: bool = False,
+):
     # log that we are doing this work
     # load stay history
     if os.path.isfile(occupy_history_filename):
-        logger.info('migrate_stays_to_history:load file:%s', occupy_history_filename)
-        stays_history = villaecobee.load_villa_calendar(occupy_history_filename, fldDate, debug=False)
+        logger.info("migrate_stays_to_history:load file:%s", occupy_history_filename)
+        stays_history = villaecobee.load_villa_calendar(
+            occupy_history_filename, fld_date, debug=False
+        )
     else:
-        logger.info('migrate_stays_to_history:file does not exist:%s', occupy_history_filename)
+        logger.info(
+            "migrate_stays_to_history:file does not exist:%s", occupy_history_filename
+        )
         stays_history = dict()
 
     # load current stay information
-    stays = villaecobee.load_villa_calendar(occupy_filename, fldDate, debug=False)
-    logger.info('migrate_stays_to_history:load file:%s', occupy_filename)
+    stays = villaecobee.load_villa_calendar(occupy_filename, fld_date, debug=False)
+    logger.info("migrate_stays_to_history:load file:%s", occupy_filename)
 
     # capture today
     today = datetime.datetime.today()
@@ -974,138 +1105,201 @@ def migrate_stays_to_history(occupy_filename, occupy_history_filename, fldDate, 
                 # increment the counter
                 records_added += 1
                 # debugging message
-                logger.debug('migrate_stays_to_history:date added:%s', staydate)
+                logger.debug("migrate_stays_to_history:date added:%s", staydate)
             else:
                 # debugging message
-                logger.debug('migrate_stays_to_history:date skipped:%s', staydate)
+                logger.debug("migrate_stays_to_history:date skipped:%s", staydate)
 
     # loop through - now if we added records we need to save stay history data
     if records_added:
-        logger.info('migrate_stays_to_history:records added to history:%d', records_added)
+        logger.info(
+            "migrate_stays_to_history:records added to history:%d", records_added
+        )
         kvcsv.writedict2csv(occupy_history_filename, stays_history)
     else:
-        logger.info('migrate_stays_to_history:no records added to history')
+        logger.info("migrate_stays_to_history:no records added to history")
 
 
 # ---------------------------------------------------------------------------
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     # capture the command line
     optiondict = kvutil.kv_parse_command_line(optiondictconfig, debug=False)
 
     # set variables based on what came form command line
-    debug = optiondict['debug']
+    debug = optiondict["debug"]
 
     # logging
-    kvutil.loggingAppStart(logger, optiondict, kvutil.scriptinfo()['name'])
+    kvutil.loggingAppStart(logger, optiondict, kvutil.scriptinfo()["name"])
 
     # migrate stays to history
-    migrate_stays_to_history(optiondict['occupy_filename'], optiondict['occupy_history_filename'],
-                             optiondict['fldDate'], debug=False)
+    migrate_stays_to_history(
+        optiondict["occupy_filename"],
+        optiondict["occupy_history_filename"],
+        optiondict["fld_date"],
+        debug=False,
+    )
 
     # load and convert the XLS to create the TXT
-    xlsaref, current_guest_start = load_convert_save_file(optiondict['xls_filename'],
-                                                          COL_REQUIRED,
-                                                          optiondict['occupy_filename'],
-                                                          optiondict['fldFirstNight'],
-                                                          optiondict['fldNights'],
-                                                          optiondict['fldType'],
-                                                          optiondict['xlsdateflds'],
-                                                          optiondict['fldLastNight'],
-                                                          optiondict['pool_heater_allowed_filename'],
-                                                          debug=optiondict['debug'])
+    xlsaref, current_guest_start = load_convert_save_file(
+        optiondict["xls_filename"],
+        COL_REQUIRED,
+        optiondict["occupy_filename"],
+        optiondict["fld_first_night"],
+        optiondict["fld_nights"],
+        optiondict["fld_type"],
+        optiondict["xlsdateflds"],
+        optiondict["fld_last_night"],
+        optiondict["pool_heater_allowed_filename"],
+        debug=optiondict["debug"],
+    )
 
     # if set copy the occupy_filename to the alternate directory
-    if optiondict['occupy_alt_dir']:
-        logger.info("copying  %s to %s", optiondict['occupy_filename'], optiondict['occupy_alt_dir'])
-        shutil.copy(optiondict['occupy_filename'], optiondict['occupy_alt_dir'])
-        
+    if optiondict["occupy_alt_dir"]:
+        logger.info(
+            "copying  %s to %s",
+            optiondict["occupy_filename"],
+            optiondict["occupy_alt_dir"],
+        )
+        shutil.copy(optiondict["occupy_filename"], optiondict["occupy_alt_dir"])
+
     # if set copy the occupy_filename to the alternate directory
-    if optiondict['pool_heater_allowed_alt_dir']:
-        logger.info("copying  %s to %s", optiondict['pool_heater_allowed_filename'], optiondict['pool_heater_allowed_alt_dir'])
-        shutil.copy(optiondict['pool_heater_allowed_filename'], optiondict['pool_heater_allowed_alt_dir'])
-        
+    if optiondict["pool_heater_allowed_alt_dir"]:
+        logger.info(
+            "copying  %s to %s",
+            optiondict["pool_heater_allowed_filename"],
+            optiondict["pool_heater_allowed_alt_dir"],
+        )
+        shutil.copy(
+            optiondict["pool_heater_allowed_filename"],
+            optiondict["pool_heater_allowed_alt_dir"],
+        )
+
     # if the google calendar sync flag is set - sync
-    if optiondict['calendarsync']:
+    if optiondict["calendarsync"]:
         # determine the starting date for the run
-        if optiondict['startback']:
-            now = datetime.datetime.now() + datetime.timedelta(days=optiondict['startback'])
-        elif optiondict['startdate']:
-            now = optiondict['startdate']
+        if optiondict["startback"]:
+            now = datetime.datetime.now() + datetime.timedelta(
+                days=optiondict["startback"]
+            )
+        elif optiondict["startdate"]:
+            now = optiondict["startdate"]
         elif current_guest_start:
             now = current_guest_start
         else:
             now = datetime.datetime.now()
         # now update the calendar
-        villacalendar.sync_villa_cal_with_bp_xls(xlsaref, now=now, debug=optiondict['debug'])
+        villacalendar.sync_villa_cal_with_bp_xls(
+            xlsaref, now=now, debug=optiondict["debug"]
+        )
 
     # validate we can load this file after we created it
-    logger.info('Load newly created file looking for problems: %s', optiondict['occupy_filename'])
+    logger.info(
+        "Load newly created file looking for problems: %s",
+        optiondict["occupy_filename"],
+    )
     try:
-        villaecobee.load_villa_calendar(optiondict['occupy_filename'], optiondict['fldDate'], debug=False)
-    except:
+        villaecobee.load_villa_calendar(
+            optiondict["occupy_filename"], optiondict["fld_date"], debug=False
+        )
+    except Exception as e:
         # logging
-        logger.error('Error in newly created file:%s', optiondict['occupy_filename'])
+        logger.error(
+            "Error in newly created file:%s:%s", optiondict["occupy_filename"], e
+        )
 
         # display message
         print("ERROR:unable to load the newly created file:see error in line above")
-        print('Please correct file:', optiondict['occupy_filename'])
+        print("Please correct file:", optiondict["occupy_filename"])
 
     # validate that we can load the file after we created it
-    logger.info('Load newly created file looking for problems: %s', optiondict['pool_heater_allowed_filename'])
+    logger.info(
+        "Load newly created file looking for problems: %s",
+        optiondict["pool_heater_allowed_filename"],
+    )
     try:
-        poolfile.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'], logger)
-    except:
+        poolfile.read_pool_heater_allowable_file(
+            optiondict["pool_heater_allowed_filename"], logger
+        )
+    except Exception as e:
         # logging
-        logger.error('Error in newly created file:%s', optiondict['pool_heater_allowed_filename'])
+        logger.error(
+            "Error in newly created file:%s:%s",
+            optiondict["pool_heater_allowed_filename"],
+            e,
+        )
 
         # display message
         print("ERROR:unable to load the newly created file:see error in line above")
-        print('Please correct file:', optiondict['pool_heater_allowed_filename'])
+        print("Please correct file:", optiondict["pool_heater_allowed_filename"])
     # validate we can load this file after we created it
-    logger.info('Load newly created file looking for problems: %s', optiondict['occupy_filename'])
+    logger.info(
+        "Load newly created file looking for problems: %s",
+        optiondict["occupy_filename"],
+    )
     try:
-        villaecobee.load_villa_calendar(optiondict['occupy_filename'], optiondict['fldDate'], debug=False)
-    except:
+        villaecobee.load_villa_calendar(
+            optiondict["occupy_filename"], optiondict["fld_date"], debug=False
+        )
+    except Exception as e:
         # logging
-        logger.error('Error in newly created file:%s', optiondict['occupy_filename'])
+        logger.error(
+            "Error in newly created file:%s:%s", optiondict["occupy_filename"], e
+        )
 
         # display message
         print("ERROR:unable to load the newly created file:see error in line above")
-        print('Please correct file:', optiondict['occupy_filename'])
-
+        print("Please correct file:", optiondict["occupy_filename"])
 
     # ALTERNATE LOCATION CHECKS
-    if optiondict['occupy_alt_dir']:
-        optiondict['occupy_filename'] = os.path.join(optiondict['occupy_alt_dir'], optiondict['occupy_filename'])
-        
-        # validate we can load this file after we created it
-        logger.info('Load newly created file looking for problems: %s', optiondict['occupy_filename'])
-        try:
-            villaecobee.load_villa_calendar(optiondict['occupy_filename'], optiondict['fldDate'], debug=False)
-        except:
-            # logging
-            logger.error('Error in newly created file:%s', optiondict['occupy_filename'])
-            
-            # display message
-            print("ERROR:unable to load the newly created file:see error in line above")
-            print('Please correct file:', optiondict['occupy_filename'])
+    if optiondict["occupy_alt_dir"]:
+        optiondict["occupy_filename"] = os.path.join(
+            optiondict["occupy_alt_dir"], optiondict["occupy_filename"]
+        )
 
-    
-    if optiondict['pool_heater_allowed_alt_dir']:
-        optiondict['pool_heater_allowed_filename'] = os.path.join(optiondict['pool_heater_allowed_alt_dir'], optiondict['pool_heater_allowed_filename'])
-        
-        # validate that we can load the file after we created it
-        logger.info('Load newly created file looking for problems: %s', optiondict['pool_heater_allowed_filename'])
+        # validate we can load this file after we created it
+        logger.info(
+            "Load newly created file looking for problems: %s",
+            optiondict["occupy_filename"],
+        )
         try:
-            poolfile.read_pool_heater_allowable_file(optiondict['pool_heater_allowed_filename'], logger)
+            villaecobee.load_villa_calendar(
+                optiondict["occupy_filename"], optiondict["fld_date"], debug=False
+            )
         except Exception as e:
             # logging
-            logger.error('Error in newly created file:%s', optiondict['pool_heater_allowed_filename'])
-            logger.error('Error msg: %s', e)
-            
+            logger.error(
+                "Error in newly created file:%s:%s", optiondict["occupy_filename"], e
+            )
+
             # display message
             print("ERROR:unable to load the newly created file:see error in line above")
-            print('Please correct file:', optiondict['pool_heater_allowed_filename'])
+            print("Please correct file:", optiondict["occupy_filename"])
+
+    if optiondict["pool_heater_allowed_alt_dir"]:
+        optiondict["pool_heater_allowed_filename"] = os.path.join(
+            optiondict["pool_heater_allowed_alt_dir"],
+            optiondict["pool_heater_allowed_filename"],
+        )
+
+        # validate that we can load the file after we created it
+        logger.info(
+            "Load newly created file looking for problems: %s",
+            optiondict["pool_heater_allowed_filename"],
+        )
+        try:
+            poolfile.read_pool_heater_allowable_file(
+                optiondict["pool_heater_allowed_filename"], logger
+            )
+        except Exception as e:
+            # logging
+            logger.error(
+                "Error in newly created file:%s",
+                optiondict["pool_heater_allowed_filename"],
+            )
+            logger.error("Error msg: %s", e)
+
+            # display message
+            print("ERROR:unable to load the newly created file:see error in line above")
+            print("Please correct file:", optiondict["pool_heater_allowed_filename"])
 
 # eof

@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version: 1.16
+@version: 1.17
 
 Library of tools used to read and write CSV files
 """
@@ -15,7 +15,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # version number
-AppVersion = "1.16"
+AppVersion = "1.17"
 
 ################################ HELPER  #############################################
 
@@ -136,15 +136,15 @@ def writelist2csv(
 
 
 def writedict2csv(
-    csvfile,
-    csvdict,
-    csvfields=None,
-    mode="w",
-    header=True,
-    encoding="windows-1252",
-    maxcolumns=False,
-    col_aref=None,
-    debug=False,
+    csvfile: str,
+    csvdict: dict,
+    csvfields: list | None=None,
+    mode: str="w",
+    header: bool=True,
+    encoding: str="windows-1252",
+    maxcolumns: bool=False,
+    col_aref: list | None=None,
+    debug: bool=False,
 ) -> None:
     """
     write out a list of dicts => records into a CSV
@@ -257,7 +257,7 @@ def readcsv2list(
     headerlc: bool = False,
     encoding: str = "windows-1252",
     debug: bool = False,
-) -> tuple[list[dict], list[str]]:
+) -> list[dict]:
     """
     read in the CSV and create a dictionary to the records
     assumes the first line of the CSV file is the header/defintion of the CSV
@@ -566,7 +566,7 @@ def readcsv2list_findheader(
     optiondict: dict | None = None,
     col_aref: list | None = None,
     debug: bool = False,
-) -> tuple[list, list]:
+) -> tuple[list, list | None]:
     """
     read in the CSV and create a dictionary to the records
     assumes the first line of the CSV file is the header/defintion of the CSV
@@ -855,7 +855,7 @@ def readcsv2dict_findheader(
     col_aref: list | None = None,
     dupkeyfail: bool = False,
     debug: bool = False,
-) -> tuple[dict, list, int]:
+) -> tuple[dict, list | None, int]:
     """
     read in the CSV and create a dictionary to the records, the list of fields
     passed in dictkeys defines the unique business key that the dictionary we create

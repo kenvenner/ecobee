@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version:  1.16
+@version: 1.17
 
 Library of tools for date time processing used in general by KV
 
@@ -15,6 +15,8 @@ from __future__ import print_function
 import datetime
 from dateutil import tz  ## python-dateutil
 from dateutil.zoneinfo import get_zonefile_instance
+from datetime import tzinfo
+
 # import sys
 # import errno
 
@@ -26,11 +28,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 # set the module version number
-AppVersion = "1.16"
-__version__ = "1.16"
+AppVersion = "1.17"
+__version__ = "1.17"
 
 
-def current_timezone_string():
+def current_timezone_string() -> tzinfo | None:
     """
     Get the timezone setting of the current machine and return it back as a string
     """
@@ -42,8 +44,8 @@ def current_timezone_string():
 
 
 def datetime2utcdatetime(
-    dt: datetime, default_tz: str | None = None, no_tz: bool = False
-) -> datetime:
+    dt: datetime.datetime, default_tz: tzinfo | None = None, no_tz: bool = False
+) -> datetime.datetime:
     """
     Take a naive datetime object, convert to a local timezone aware object
     and convert that to a datetime UTC timezone aware object
@@ -338,8 +340,8 @@ def datetimezone_from_str(
 
     # see if we need to change the format of the data we got in
     for redate, action in datefmtscleanup:
-        if redate.match(value):
-            m = redate.match(value)
+        m = redate.match(value)
+        if m:
             # each action tells us how to process and reformat the data
             if action == "remove-colon-2":
                 value = m.group(1) + m.group(2) + m.group(3)
@@ -382,6 +384,8 @@ def show_timezones(sublist: str | None = None, disp_msg: bool = False) -> list:
     Returns:
         tznames - list of timezone strings
     """
+    if sublist is None:
+        sublist = ''
     # extract out the timezone strings
     sorted_zonenames = sorted(list(get_zonefile_instance().zones))
     # break it up int sections
