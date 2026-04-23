@@ -1,7 +1,7 @@
 """
 @author:   Ken Venner
 @contact:  ken@venerllc.com
-@version: 1.30
+@version: 1.31
 
 Read information from Beautiful Places XLS files,
 extract out occupancy data, build a new
@@ -197,7 +197,7 @@ logger = kvlogger.getLogger(__name__)
 # application variables
 optiondictconfig = {
     "AppVersion": {
-        "value": "1.30",
+        'value': '1.31',
         "description": "defines the version number for the app",
     },
     "debug": {
@@ -305,7 +305,7 @@ def validate_res_records(
             if not isinstance(rec[fld], datetime.datetime):
                 date_error = True
                 errors.append(
-                    "Field [{}] not of type datetime - row [{}]:\n{}\n".format(
+                    "Field [{}] not of type datetime - xlsrow [{}]:\n{}\n".format(
                         fld,
                         rec[kvxls.FLD_XLSROW_ABS],
                         {
@@ -322,8 +322,8 @@ def validate_res_records(
             num_nights = int(rec[fld_nights])
             if dt_diff.days != num_nights:
                 errors.append(
-                    "Field [{}] not calc as date difference - row [{}]:\n{}\n".format(
-                        fld,
+                    "Field [{}] not calc as date difference - xlsrow [{}]:\n{}\n".format(
+                        fld_nights,
                         rec[kvxls.FLD_XLSROW_ABS],
                         {
                             "recidx": recidx,
@@ -337,7 +337,7 @@ def validate_res_records(
         # check the record / reservation type
         if rec[fld_type] not in OCC_TYPE_CONV:
             errors.append(
-                "Field [{}] not in OCC_TYPE_CONV - row [{}]:\n{}\n".format(
+                "Field [{}] not in OCC_TYPE_CONV - xlsrow [{}]:\n{}\n".format(
                     fld_type,
                     rec[kvxls.FLD_XLSROW_ABS],
                     {
@@ -353,7 +353,7 @@ def validate_res_records(
             continue
         elif rec[BOOKING_FLD] in booking:
             errors.append(
-                "Field [{}] booking already exists - row [{}]:\n{}\n".format(
+                "Field [{}] booking already exists - xlsrow [{}]:\n{}\n".format(
                     fld_type,
                     rec[kvxls.FLD_XLSROW_ABS],
                     {
